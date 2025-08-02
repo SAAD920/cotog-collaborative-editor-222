@@ -154,7 +154,7 @@ export const AuthProvider = ({ children }) => {
     dispatch({ type: AUTH_ACTIONS.LOGIN_START });
 
     try {
-      const response = await fetch('http://localhost:4000/api/auth/login', {
+      const response = await fetch('https://cotog-backend.onrender.com/api/auth/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -191,7 +191,7 @@ export const AuthProvider = ({ children }) => {
     dispatch({ type: AUTH_ACTIONS.LOGIN_START });
 
     try {
-      const response = await fetch('http://localhost:4000/api/auth/signup', {
+      const response = await fetch('https://cotog-backend.onrender.com/api/auth/signup', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -265,7 +265,7 @@ export const AuthProvider = ({ children }) => {
   // Make authenticated API requests - FIXED VERSION
   const authenticatedFetch = async (url, options = {}) => {
     // If URL doesn't start with http, prepend backend URL
-    const fullUrl = url.startsWith('http') ? url : `http://localhost:4000${url}`;
+    const fullUrl = url.startsWith('http') ? url : `https://cotog-backend.onrender.com${url}`;
     
     const headers = {
       ...getAuthHeaders(),

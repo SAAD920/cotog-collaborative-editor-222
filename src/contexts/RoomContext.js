@@ -469,7 +469,7 @@ export const RoomProvider = ({ children }) => {
       console.log('🔐 [CLIENT] Creating socket connection with token');
 
       // Create new socket connection
-      const socket = io('http://localhost:4000', {
+      const socket = io('https://cotog-backend.onrender.com', {
         auth: { token },
         autoConnect: false,
         forceNew: true,

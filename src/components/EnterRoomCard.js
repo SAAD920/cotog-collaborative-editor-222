@@ -47,7 +47,7 @@ const EnterRoomCard = () => {
 
   const checkRoomExists = async (roomId) => {
     try {
-      const response = await fetch(`http://localhost:4000/api/room/${roomId}`);
+      const response = await fetch(`https://cotog-backend.onrender.com/api/room/${roomId}`);
       
       if (response.ok) {
         const roomData = await response.json();
