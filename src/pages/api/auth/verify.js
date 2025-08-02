@@ -1,4 +1,4 @@
-/ src/pages/api/auth/verify.js
+// src/pages/api/auth/verify.js
 const jwt = require('jsonwebtoken');
 const { userService } = require('../../../data/users');
 
