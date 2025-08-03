@@ -9,7 +9,8 @@
     "start": "next start",
     "lint": "next lint",
     "server": "node server.js",
-    "dev:full": "concurrently \"npm run dev\" \"npm run server\""
+    "dev:full": "concurrently \"npm run dev\" \"npm run server\"",
+    "postinstall": "npm audit fix --force || true"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.10.2",
@@ -50,5 +51,8 @@
     "nextjs"
   ],
   "author": "COTOG Team",
-  "license": "MIT"
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }

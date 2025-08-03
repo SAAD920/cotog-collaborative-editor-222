@@ -1,0 +1,32 @@
+services:
+  # Frontend Service
+  - type: web
+    name: cotog-frontend
+    env: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    plan: starter
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_API_URL
+        value: https://cotog-backend.onrender.com
+      - key: NEXT_PUBLIC_SOCKET_URL
+        value: https://cotog-backend.onrender.com
+
+  # Backend Service  
+  - type: web
+    name: cotog-backend
+    env: node
+    buildCommand: npm install
+    startCommand: node server.js
+    plan: starter
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: JWT_SECRET
+        generateValue: true
+      - key: FRONTEND_URL
+        value: https://cotog-frontend.onrender.com
