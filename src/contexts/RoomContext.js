@@ -1,4 +1,4 @@
-// src/contexts/RoomContext.js - ENHANCED WITH AUDIO PERMISSION SYSTEM
+// src/contexts/RoomContext.js
 import React, { createContext, useContext, useReducer, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/contexts/AuthContext';
@@ -25,6 +25,7 @@ const ROOM_ACTIONS = {
   AUDIO_PERMISSION_RESPONSE: 'AUDIO_PERMISSION_RESPONSE',
   AUDIO_PERMISSIONS_UPDATE: 'AUDIO_PERMISSIONS_UPDATE',
   SPEAKING_USERS_UPDATE: 'SPEAKING_USERS_UPDATE',
+  REMOVE_PERMISSION_REQUEST: 'REMOVE_PERMISSION_REQUEST',
   RESET_ROOM: 'RESET_ROOM'
 };
 
@@ -167,10 +168,19 @@ const roomReducer = (state, action) => {
       };
 
     case ROOM_ACTIONS.AUDIO_PERMISSION_REQUEST:
+      // Check if request already exists to prevent duplicates
+      const existingRequest = state.pendingAudioRequests.find(
+        req => req.username === action.payload.username
+      );
+      
+      if (existingRequest) {
+        return state; // Don't add duplicate request
+      }
+      
       return {
         ...state,
         pendingAudioRequests: [
-          ...state.pendingAudioRequests.filter(req => req.username !== action.payload.username),
+          ...state.pendingAudioRequests,
           {
             username: action.payload.username,
             timestamp: action.payload.timestamp
@@ -181,9 +191,11 @@ const roomReducer = (state, action) => {
     case ROOM_ACTIONS.AUDIO_PERMISSION_RESPONSE:
       return {
         ...state,
+        // Remove the request from pending when responded to
         pendingAudioRequests: state.pendingAudioRequests.filter(
           req => req.username !== action.payload.username
         ),
+        // Update permissions
         audioPermissions: {
           ...state.audioPermissions,
           [action.payload.username]: action.payload.granted
@@ -200,6 +212,14 @@ const roomReducer = (state, action) => {
       return {
         ...state,
         speakingUsers: action.payload.speakingUsers
+      };
+
+    case ROOM_ACTIONS.REMOVE_PERMISSION_REQUEST:
+      return {
+        ...state,
+        pendingAudioRequests: state.pendingAudioRequests.filter(
+          req => req.username !== action.payload.username
+        )
       };
 
     case ROOM_ACTIONS.RESET_ROOM:
@@ -221,12 +241,26 @@ export const RoomProvider = ({ children }) => {
   const router = useRouter();
   const socketRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
-  const hasAttemptedJoin = useRef(false);
-  const isJoining = useRef(false);
+  
+  // 🆕 FIXED: Add initialization state tracking to prevent double joins
+  const initializationRef = useRef({
+    isInitializing: false,
+    lastRoomId: null,
+    lastPassword: null,
+    lastInitTime: 0
+  });
 
-  // Cleanup function
+  // 🆕 ENHANCED: Cleanup function with initialization state reset
   const cleanup = useCallback(() => {
-    console.log('🧹 Cleaning up room connection');
+    console.log('🧹 [CLIENT] Cleaning up room connection');
+    
+    // Clear initialization state
+    initializationRef.current = {
+      isInitializing: false,
+      lastRoomId: null,
+      lastPassword: null,
+      lastInitTime: 0
+    };
     
     if (socketRef.current) {
       socketRef.current.removeAllListeners();
@@ -240,8 +274,6 @@ export const RoomProvider = ({ children }) => {
     }
     
     socketRef.current = null;
-    hasAttemptedJoin.current = false;
-    isJoining.current = false;
     
     dispatch({ type: ROOM_ACTIONS.RESET_ROOM });
   }, []);
@@ -269,7 +301,9 @@ export const RoomProvider = ({ children }) => {
     socket.on('disconnect', (reason) => {
       console.log('🔌 [CLIENT] Disconnected from room server:', reason);
       dispatch({ type: ROOM_ACTIONS.DISCONNECTED });
-      isJoining.current = false;
+      
+      // Reset initialization state on disconnect
+      initializationRef.current.isInitializing = false;
     });
 
     socket.on('connect_error', (error) => {
@@ -278,7 +312,9 @@ export const RoomProvider = ({ children }) => {
         type: ROOM_ACTIONS.ERROR, 
         payload: { error: `Connection failed: ${error.message}` } 
       });
-      isJoining.current = false;
+      
+      // Reset initialization state on error
+      initializationRef.current.isInitializing = false;
     });
 
     // Room events
@@ -302,7 +338,8 @@ export const RoomProvider = ({ children }) => {
         });
       }
       
-      isJoining.current = false;
+      // Mark initialization as complete
+      initializationRef.current.isInitializing = false;
     });
 
     socket.on('error', (errorData) => {
@@ -311,7 +348,9 @@ export const RoomProvider = ({ children }) => {
         type: ROOM_ACTIONS.ERROR, 
         payload: { error: errorData.message || 'Failed to join room' } 
       });
-      isJoining.current = false;
+      
+      // Reset initialization state on error
+      initializationRef.current.isInitializing = false;
     });
 
     // User management events
@@ -383,6 +422,7 @@ export const RoomProvider = ({ children }) => {
 
     socket.on('audioPermissionResponse', (data) => {
       console.log('🎤 [CLIENT] Audio permission response received:', data);
+      
       dispatch({
         type: ROOM_ACTIONS.AUDIO_PERMISSION_RESPONSE,
         payload: {
@@ -434,17 +474,39 @@ export const RoomProvider = ({ children }) => {
 
   }, [state.typingUsers]);
 
-  // Join room function
+  // 🆕 ENHANCED: Join room function with deduplication and better error handling
   const joinRoom = useCallback(async (roomId, roomPassword) => {
-    console.log('🎯 [CLIENT] Join room called:', { roomId, roomPassword, isAuthenticated, user: !!user });
+    const currentTime = Date.now();
+    
+    console.log('🎯 [CLIENT] Join room called:', { 
+      roomId, 
+      isAuthenticated, 
+      user: !!user,
+      isInitializing: initializationRef.current.isInitializing,
+      timeSinceLastInit: currentTime - initializationRef.current.lastInitTime
+    });
 
-    if (!isAuthenticated || !user) {
-      dispatch({ type: ROOM_ACTIONS.ERROR, payload: { error: 'Authentication required' } });
+    // Prevent rapid successive calls (debounce with 1 second)
+    if (currentTime - initializationRef.current.lastInitTime < 1000) {
+      console.log('🚫 [CLIENT] Too soon since last initialization, skipping...');
       return false;
     }
 
-    if (isJoining.current) {
-      console.log('🚫 [CLIENT] Already joining room, skipping...');
+    // Prevent double initialization
+    if (initializationRef.current.isInitializing) {
+      console.log('🚫 [CLIENT] Already initializing, skipping...');
+      return false;
+    }
+
+    // Check if we're trying to join the same room with same password and already connected
+    const { lastRoomId, lastPassword } = initializationRef.current;
+    if (lastRoomId === roomId && lastPassword === roomPassword && state.isConnected && state.roomInfo) {
+      console.log('🚫 [CLIENT] Already connected to this room, skipping...');
+      return true;
+    }
+
+    if (!isAuthenticated || !user) {
+      dispatch({ type: ROOM_ACTIONS.ERROR, payload: { error: 'Authentication required' } });
       return false;
     }
 
@@ -453,14 +515,20 @@ export const RoomProvider = ({ children }) => {
       return false;
     }
 
-    isJoining.current = true;
+    // Set initialization state
+    initializationRef.current = {
+      isInitializing: true,
+      lastRoomId: roomId,
+      lastPassword: roomPassword,
+      lastInitTime: currentTime
+    };
+
     dispatch({ type: ROOM_ACTIONS.CONNECTING });
     
     try {
       // Clean up any existing connection
       cleanup();
 
-      // Get auth token
       const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
       if (!token) {
         throw new Error('No authentication token found');
@@ -468,7 +536,6 @@ export const RoomProvider = ({ children }) => {
 
       console.log('🔐 [CLIENT] Creating socket connection with token');
 
-      // Create new socket connection
       const socket = io('https://cotog-backend.onrender.com', {
         auth: { token },
         autoConnect: false,
@@ -478,21 +545,17 @@ export const RoomProvider = ({ children }) => {
       });
 
       socketRef.current = socket;
-
-      // Set up event handlers before connecting
       setupSocketHandlers(socket, roomId, roomPassword);
-
-      // Connect to server
       socket.connect();
 
       return true;
     } catch (error) {
       console.error('❌ [CLIENT] Error joining room:', error);
       dispatch({ type: ROOM_ACTIONS.ERROR, payload: { error: error.message } });
-      isJoining.current = false;
+      initializationRef.current.isInitializing = false;
       return false;
     }
-  }, [isAuthenticated, user, cleanup, setupSocketHandlers]);
+  }, [isAuthenticated, user, cleanup, setupSocketHandlers, state.isConnected, state.roomInfo]);
 
   // Leave room function
   const leaveRoom = useCallback(() => {
@@ -573,7 +636,7 @@ export const RoomProvider = ({ children }) => {
     }
   }, [state.isConnected, state.roomId, state.userRole, state.code, user]);
 
-  // Audio permission functions
+  // Audio permission functions  
   const sendAudioPermissionRequest = useCallback(() => {
     if (socketRef.current && state.isConnected && state.roomId && user) {
       console.log('🎤 [CLIENT] Sending audio permission request');
@@ -591,6 +654,12 @@ export const RoomProvider = ({ children }) => {
         roomId: state.roomId,
         username,
         granted
+      });
+      
+      // Immediately remove from local pending requests for instant UI feedback
+      dispatch({
+        type: ROOM_ACTIONS.REMOVE_PERMISSION_REQUEST,
+        payload: { username }
       });
     }
   }, [state.isConnected, state.roomId, state.userRole]);

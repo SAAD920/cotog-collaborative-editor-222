@@ -262,9 +262,9 @@ export const AuthProvider = ({ children }) => {
     };
   };
 
-  // Make authenticated API requests - FIXED VERSION
+  // Make authenticated API requests 
   const authenticatedFetch = async (url, options = {}) => {
-    // If URL doesn't start with http, prepend backend URL
+    
     const fullUrl = url.startsWith('http') ? url : `https://cotog-backend.onrender.com${url}`;
     
     const headers = {

@@ -1,10 +1,11 @@
-// src/pages/room/[roomId].js - COMPLETE UPDATED VERSION WITH FIXED LAYOUT
+// src/pages/room/[roomId].js - UPDATED WITH WEBRTC INTEGRATION
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import Navbar from '@/components/Navbar';
 import CollaborativeCodeEditor from '@/components/CollaborativeCodeEditor';
 import Chat from '@/components/Chat';
-import Audio from '@/components/Audio';
+// Import the new WebRTC component instead of the old Audio component
+import WebRTCAudioComponent from '@/components/WebRTCAudioComponent';
 import { useAuth, ProtectedRoute } from '@/contexts/AuthContext';
 import { RoomProvider, useRoom } from '@/contexts/RoomContext';
 
@@ -95,7 +96,7 @@ const RoomContent = () => {
               <p>🔌 Establishing connection...</p>
               <p>💬 Initializing chat...</p>
               <p>💻 Loading code editor...</p>
-              <p>🎵 Setting up audio...</p>
+              <p>🎙️ Setting up WebRTC voice chat...</p>
             </div>
 
             {/* Emergency Actions */}
@@ -149,7 +150,7 @@ const RoomContent = () => {
                 <div>Room ID: {roomId}</div>
                 <div>User: {user?.username}</div>
                 <div>Auth Token: {localStorage.getItem('auth_token') ? 'Present' : 'Missing'}</div>
-                <div>Server URL: http://localhost:4000</div>
+                <div>Server URL: https://cotog-backend.onrender.com</div>
                 <div className="border-t pt-2 mt-2">
                   <div className="font-semibold">Debug logs:</div>
                   {debugInfo.map((log, i) => (
@@ -218,6 +219,7 @@ const RoomContent = () => {
                       <span>👥 {users.length}/{roomInfo.maxUsers} users</span>
                       <span>👤 Created by {roomInfo.createdBy}</span>
                       {roomInfo.isPrivate && <span>🔒 Private</span>}
+                      <span>🎙️ WebRTC Voice Chat</span>
                     </>
                   )}
                 </div>
@@ -246,17 +248,19 @@ const RoomContent = () => {
             </div>
           )}
 
-          {/* Debug Panel (can be removed in production) */}
+          {/* Enhanced Debug Panel with WebRTC info */}
           {process.env.NODE_ENV === 'development' && (
             <div className="mt-3 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
               <details className="text-sm">
-                <summary className="font-semibold text-yellow-800 cursor-pointer">🐛 Debug Info</summary>
+                <summary className="font-semibold text-yellow-800 cursor-pointer">🐛 Debug Info (WebRTC Enhanced)</summary>
                 <div className="mt-2 space-y-1 text-yellow-700 text-xs">
                   <div>Connected: {isConnected.toString()}</div>
                   <div>Current User: {currentUser}</div>
                   <div>User Role: {userRole}</div>
                   <div>Users Count: {users.length}</div>
                   <div>Room Loaded: {!!roomInfo}</div>
+                  <div>WebRTC Component: Loaded</div>
+                  <div>Browser WebRTC Support: {typeof RTCPeerConnection !== 'undefined' ? 'Yes' : 'No'}</div>
                   <div className="max-h-20 overflow-y-auto">
                     Recent logs: {debugInfo.slice(-3).join(' | ')}
                   </div>
@@ -267,11 +271,11 @@ const RoomContent = () => {
         </div>
       </div>
 
-      {/* Room Content Layout - UPDATED WITH NEW CSS CLASSES */}
+      {/* Room Content Layout - UPDATED WITH WEBRTC AUDIO */}
       <div className="container mx-auto p-4 pb-20">
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 room-content" style={{ height: 'calc(100vh - 320px)' }}>
           
-          {/* Left Sidebar - Chat and Audio with Fixed Heights */}
+          {/* Left Sidebar - Chat and WebRTC Audio with Fixed Heights */}
           <div className="lg:col-span-1 room-sidebar">
             
             {/* Chat Component - Uses chat-container class for fixed height */}
@@ -279,9 +283,9 @@ const RoomContent = () => {
               <Chat />
             </div>
 
-            {/* Audio Component - Uses audio-container class for fixed height */}
+            {/* WebRTC Audio Component - Uses audio-container class for fixed height */}
             <div className="audio-container">
-              <Audio />
+              <WebRTCAudioComponent />
             </div>
             
           </div>
@@ -296,7 +300,7 @@ const RoomContent = () => {
         </div>
       </div>
 
-      {/* Room Status Bar - Enhanced and more responsive */}
+      {/* Enhanced Room Status Bar with WebRTC info */}
       <div id="room-status-bar" className="fixed bottom-0 left-0 right-0 bg-gray-800 text-white py-2 px-4 z-50 transition-transform duration-300">
         <div className="container mx-auto">
           {/* Enhanced Status Bar */}
@@ -311,6 +315,7 @@ const RoomContent = () => {
               <span className="text-sm">Room: <code className="bg-gray-700 px-1 rounded">{roomId}</code></span>
               <span className="text-sm hidden md:inline">User: <span className="font-medium">{currentUser}</span></span>
               <span className="text-sm hidden lg:inline">Role: <span className="capitalize font-medium">{userRole}</span></span>
+              <span className="text-sm hidden xl:inline">🎙️ WebRTC Voice</span>
             </div>
             
             <div className="flex items-center space-x-4">
@@ -326,6 +331,11 @@ const RoomContent = () => {
                 {/* Connection Indicator */}
                 <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`} 
                      title={isConnected ? 'Connected to room' : 'Disconnected from room'}>
+                </div>
+                
+                {/* WebRTC Indicator */}
+                <div className={`w-3 h-3 rounded-full ${typeof RTCPeerConnection !== 'undefined' ? 'bg-blue-400' : 'bg-gray-400'}`} 
+                     title={typeof RTCPeerConnection !== 'undefined' ? 'WebRTC supported' : 'WebRTC not supported'}>
                 </div>
                 
                 {/* Minimize Button */}
@@ -366,11 +376,12 @@ const RoomContent = () => {
                 <>
                   <span>📝 {roomInfo.roomName}</span>
                   {roomInfo.isPrivate && <span>🔒 Private</span>}
+                  <span>🎙️ P2P Voice Chat</span>
                 </>
               )}
             </div>
             <div className="flex items-center space-x-2 text-xs">
-              <span>Server: localhost:4000</span>
+              <span>Server: cotog-backend.onrender.com</span>
               <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`}></div>
             </div>
           </div>
