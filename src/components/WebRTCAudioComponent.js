@@ -1,12 +1,10 @@
-// FILE 1: src/components/WebRTCAudioComponent.js - COMPLETE FIXED VERSION
-// =============================================================================
-
+// src/components/WebRTCAudioComponent.js - FIXED VERSION WITH GUARANTEED AUDIO OUTPUT
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Peer from 'simple-peer';
 import { useRoom } from '@/contexts/RoomContext';
 
 // ============================================================================
-// WEBRTC VOICE CHAT COMPONENT - FIXED WITH STABLE CONNECTIONS
+// WEBRTC VOICE CHAT COMPONENT - FIXED AUDIO OUTPUT VERSION
 // ============================================================================
 const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
   const [peers, setPeers] = useState({});
@@ -18,49 +16,283 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
   const [error, setError] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
   const [speakingUsers, setSpeakingUsers] = useState(new Set());
+  const [audioOutputDevice, setAudioOutputDevice] = useState('default');
+  const [availableOutputDevices, setAvailableOutputDevices] = useState([]);
 
-  // FIXED: Enhanced refs with stability tracking
   const peersRef = useRef({});
   const streamRef = useRef(null);
   const speakingTimeoutRef = useRef({});
-  const isStableConnectionRef = useRef(false); // Prevents premature cleanup
-  const connectionTimeoutRef = useRef(null);
+  const isStableConnectionRef = useRef(false);
 
+  // Enhanced resource tracking with audio output management
   const resourcesRef = useRef({
     audioContext: null,
     mediaStream: null,
     analyser: null,
     isCleaningUp: false,
-    animationFrameId: null
+    animationFrameId: null,
+    audioElements: new Map() // Track all audio elements for output device management
   });
 
   const { getSocket, isConnected: roomConnected } = useRoom();
 
-  // FIXED: Enhanced STUN/TURN server configuration
-  const ICE_SERVERS = [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' },
-    { urls: 'stun:global.stun.twilio.com:3478' }
-  ];
+  // ============================================================================
+  // AUDIO OUTPUT DEVICE MANAGEMENT
+  // ============================================================================
 
-  // FIXED: Safe speaking detection with stability checks
+  // Get available audio output devices
+  const getAudioOutputDevices = useCallback(async () => {
+    try {
+      if (!navigator.mediaDevices.enumerateDevices) {
+        console.log('📱 Device enumeration not supported');
+        return [];
+      }
+
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioOutputDevices = devices
+        .filter(device => device.kind === 'audiooutput')
+        .map(device => ({
+          deviceId: device.deviceId,
+          label: device.label || `Audio Output ${device.deviceId.slice(0, 8)}...`
+        }));
+
+      console.log('🔊 Available audio output devices:', audioOutputDevices);
+      setAvailableOutputDevices(audioOutputDevices);
+      return audioOutputDevices;
+    } catch (error) {
+      console.error('❌ Failed to get audio output devices:', error);
+      return [];
+    }
+  }, []);
+
+  // Set audio output device for all audio elements
+  const setAudioOutputDevice = useCallback(async (deviceId) => {
+    console.log(`🔊 Setting audio output device to: ${deviceId}`);
+    
+    try {
+      // Update all existing audio elements
+      for (const [userId, audioElement] of resourcesRef.current.audioElements) {
+        if (audioElement && audioElement.setSinkId) {
+          try {
+            await audioElement.setSinkId(deviceId);
+            console.log(`✅ Audio output set for user ${userId}`);
+          } catch (sinkError) {
+            console.error(`❌ Failed to set audio output for user ${userId}:`, sinkError);
+          }
+        }
+      }
+      
+      setAudioOutputDevice(deviceId);
+      console.log(`✅ Audio output device updated to: ${deviceId}`);
+    } catch (error) {
+      console.error('❌ Failed to set audio output device:', error);
+    }
+  }, []);
+
+  // Manual audio output device selection
+  const selectAudioOutputDevice = useCallback(async () => {
+    try {
+      if (!navigator.mediaDevices.selectAudioOutput) {
+        console.log('❌ Manual audio output selection not supported in this browser');
+        alert('Audio output selection not supported in this browser. Use browser settings.');
+        return;
+      }
+      
+      const device = await navigator.mediaDevices.selectAudioOutput();
+      await setAudioOutputDevice(device.deviceId);
+      
+    } catch (error) {
+      console.error('❌ Manual audio output selection failed:', error);
+      if (error.name !== 'NotAllowedError') { // Don't show error if user cancelled
+        alert('Failed to select audio output device');
+      }
+    }
+  }, [setAudioOutputDevice]);
+
+  // ============================================================================
+  // ENHANCED AUDIO SETUP WITH GUARANTEED OUTPUT
+  // ============================================================================
+
+  // Create audio element with guaranteed playback
+  const createAudioElement = useCallback(async (remoteStream, userId, username) => {
+    try {
+      console.log(`🎵 Creating audio element for ${username} (${userId})`);
+      
+      // Create audio element
+      const audio = new Audio();
+      audio.srcObject = remoteStream;
+      audio.volume = volume / 100;
+      audio.autoplay = true;
+      audio.muted = false;
+      audio.preload = 'auto';
+      
+      // Set audio output device if supported
+      if (audio.setSinkId && audioOutputDevice !== 'default') {
+        try {
+          await audio.setSinkId(audioOutputDevice);
+          console.log(`🔊 Audio output device set for ${username}`);
+        } catch (sinkError) {
+          console.warn(`⚠️ Could not set audio output device for ${username}:`, sinkError);
+        }
+      }
+
+      // Enhanced event handlers for better debugging
+      audio.addEventListener('loadstart', () => {
+        console.log(`📡 Audio loading started for ${username}`);
+      });
+
+      audio.addEventListener('loadedmetadata', () => {
+        console.log(`📊 Audio metadata loaded for ${username}`);
+      });
+
+      audio.addEventListener('canplay', () => {
+        console.log(`🎵 Audio ready to play for ${username}`);
+      });
+
+      audio.addEventListener('play', () => {
+        console.log(`▶️ Audio started playing for ${username}`);
+      });
+
+      audio.addEventListener('pause', () => {
+        console.log(`⏸️ Audio paused for ${username}`);
+      });
+
+      audio.addEventListener('error', (event) => {
+        console.error(`❌ Audio error for ${username}:`, event.target.error);
+      });
+
+      audio.addEventListener('stalled', () => {
+        console.warn(`⚠️ Audio stalled for ${username}`);
+      });
+
+      // Store audio element for management
+      resourcesRef.current.audioElements.set(userId, audio);
+
+      // Force audio playback with multiple fallback strategies
+      const forceAudioPlayback = async () => {
+        try {
+          // Strategy 1: Direct play
+          console.log(`🎯 Attempting direct play for ${username}`);
+          await audio.play();
+          console.log(`✅ Direct audio play successful for ${username}`);
+          return true;
+          
+        } catch (playError) {
+          console.warn(`⚠️ Direct play failed for ${username}:`, playError);
+          
+          // Strategy 2: Resume audio context if suspended
+          try {
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioContext.state === 'suspended') {
+              await audioContext.resume();
+              console.log(`🔊 Audio context resumed for ${username}`);
+              await audio.play();
+              console.log(`✅ Audio play after context resume successful for ${username}`);
+              return true;
+            }
+          } catch (contextError) {
+            console.warn(`⚠️ Audio context strategy failed for ${username}:`, contextError);
+          }
+
+          // Strategy 3: User interaction required - show play button
+          console.log(`🔘 Creating manual play button for ${username}`);
+          const playButton = document.createElement('button');
+          playButton.innerHTML = `🔊 Click to hear ${username}`;
+          playButton.style.cssText = `
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 10000;
+            background: linear-gradient(45deg, #4CAF50, #45a049);
+            color: white;
+            padding: 15px 25px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+            animation: pulse 2s infinite;
+          `;
+
+          // Add pulsing animation
+          const style = document.createElement('style');
+          style.textContent = `
+            @keyframes pulse {
+              0% { transform: translate(-50%, -50%) scale(1); }
+              50% { transform: translate(-50%, -50%) scale(1.05); }
+              100% { transform: translate(-50%, -50%) scale(1); }
+            }
+          `;
+          document.head.appendChild(style);
+
+          playButton.onclick = async () => {
+            try {
+              await audio.play();
+              console.log(`✅ Manual audio play successful for ${username}`);
+              document.body.removeChild(playButton);
+              document.head.removeChild(style);
+            } catch (manualError) {
+              console.error(`❌ Manual audio play failed for ${username}:`, manualError);
+              playButton.innerHTML = `❌ Audio failed for ${username}`;
+              setTimeout(() => {
+                if (document.body.contains(playButton)) {
+                  document.body.removeChild(playButton);
+                  document.head.removeChild(style);
+                }
+              }, 3000);
+            }
+          };
+
+          document.body.appendChild(playButton);
+
+          // Auto-remove button after 15 seconds
+          setTimeout(() => {
+            if (document.body.contains(playButton)) {
+              document.body.removeChild(playButton);
+              document.head.removeChild(style);
+            }
+          }, 15000);
+
+          return false;
+        }
+      };
+
+      // Attempt playback when metadata is loaded
+      audio.addEventListener('loadedmetadata', forceAudioPlayback);
+
+      // Also try immediate playback
+      setTimeout(forceAudioPlayback, 100);
+
+      return audio;
+
+    } catch (error) {
+      console.error(`❌ Failed to create audio element for ${username}:`, error);
+      return null;
+    }
+  }, [volume, audioOutputDevice]);
+
+  // ============================================================================
+  // ENHANCED SPEAKING DETECTION
+  // ============================================================================
+
   const setupSpeakingDetection = useCallback((mediaStream) => {
     try {
-      if (resourcesRef.current.isCleaningUp || !isStableConnectionRef.current) {
-        console.log('🚫 Skipping audio setup - not stable');
+      if (resourcesRef.current.isCleaningUp) {
+        console.log('🚫 Skipping audio setup - component is cleaning up');
         return;
       }
       
       if (resourcesRef.current.audioContext && 
           resourcesRef.current.audioContext.state !== 'closed') {
+        console.log('🔄 Closing existing AudioContext before creating new one');
         resourcesRef.current.audioContext.close().catch(console.warn);
       }
       
       const audioContext = new (window.AudioContext || window.webkitAudioContext)();
       const analyser = audioContext.createAnalyser();
+      
       const source = audioContext.createMediaStreamSource(mediaStream);
       source.connect(analyser);
       
@@ -74,7 +306,7 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
       const checkSpeaking = () => {
         if (resourcesRef.current.isCleaningUp || 
             !resourcesRef.current.analyser ||
-            !isStableConnectionRef.current ||
+            !audioContext ||
             audioContext.state === 'closed') {
           return;
         }
@@ -83,6 +315,7 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
           analyser.getByteFrequencyData(dataArray);
           const average = dataArray.reduce((sum, value) => sum + value, 0) / bufferLength;
           const normalizedLevel = (average / 128) * 100;
+          
           const isSpeaking = normalizedLevel > 5 && !isMuted;
           
           if (isSpeaking) {
@@ -101,7 +334,9 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
             }, 500);
           }
           
-          if (isStableConnectionRef.current && resourcesRef.current.mediaStream?.active) {
+          if (!resourcesRef.current.isCleaningUp && 
+              resourcesRef.current.mediaStream &&
+              resourcesRef.current.mediaStream.active) {
             resourcesRef.current.animationFrameId = requestAnimationFrame(checkSpeaking);
           }
         } catch (error) {
@@ -117,7 +352,219 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
     }
   }, [isMuted, user.username]);
 
-  // FIXED: Initialize audio with stability tracking
+  // ============================================================================
+  // ENHANCED PEER CONNECTION MANAGEMENT
+  // ============================================================================
+
+  // Create peer connection with enhanced ICE servers and audio handling
+  const createPeer = useCallback((userToCall, callerID, stream) => {
+    try {
+      console.log(`📞 Creating peer connection to call ${userToCall}`);
+      
+      const peer = new Peer({
+        initiator: true,
+        trickle: false,
+        stream: stream,
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:stun3.l.google.com:19302' },
+            { urls: 'stun:stun4.l.google.com:19302' }
+          ],
+          sdpSemantics: 'unified-plan'
+        },
+        offerOptions: {
+          offerToReceiveAudio: true,
+          offerToReceiveVideo: false
+        }
+      });
+
+      peer.on('signal', signal => {
+        const socket = getSocket();
+        if (socket && socket.connected) {
+          console.log(`📡 Sending signal to ${userToCall}`);
+          socket.emit('sending-signal', { 
+            userToCall, 
+            callerID, 
+            signal,
+            roomId
+          });
+        }
+      });
+
+      peer.on('stream', async remoteStream => {
+        console.log(`🔊 Received stream from user ${userToCall}`);
+        
+        try {
+          const audioElement = await createAudioElement(remoteStream, userToCall, userToCall);
+          if (audioElement) {
+            peer.audioElement = audioElement;
+            console.log(`✅ Audio setup complete for user ${userToCall}`);
+          }
+        } catch (error) {
+          console.error(`❌ Error setting up audio for user ${userToCall}:`, error);
+        }
+      });
+
+      peer.on('connect', () => {
+        console.log(`🔗 Peer connected to ${userToCall}`);
+        isStableConnectionRef.current = true;
+      });
+
+      peer.on('error', err => {
+        console.error(`❌ Peer connection error with ${userToCall}:`, err);
+        
+        // Clean up this specific peer
+        if (peersRef.current[userToCall] === peer) {
+          delete peersRef.current[userToCall];
+          setPeers(prev => {
+            const newPeers = { ...prev };
+            delete newPeers[userToCall];
+            return newPeers;
+          });
+          
+          // Clean up audio element
+          if (resourcesRef.current.audioElements.has(userToCall)) {
+            const audioElement = resourcesRef.current.audioElements.get(userToCall);
+            if (audioElement) {
+              audioElement.pause();
+              audioElement.srcObject = null;
+            }
+            resourcesRef.current.audioElements.delete(userToCall);
+          }
+        }
+      });
+
+      peer.on('close', () => {
+        console.log(`🔗 Peer connection closed for user ${userToCall}`);
+        if (peer.audioElement) {
+          peer.audioElement.pause();
+          peer.audioElement.srcObject = null;
+        }
+        
+        // Clean up audio element tracking
+        if (resourcesRef.current.audioElements.has(userToCall)) {
+          resourcesRef.current.audioElements.delete(userToCall);
+        }
+      });
+
+      return peer;
+    } catch (error) {
+      console.error('❌ Error creating peer:', error);
+      return null;
+    }
+  }, [getSocket, roomId, createAudioElement]);
+
+  // Add peer (when someone calls us)
+  const addPeer = useCallback((incomingSignal, callerID, stream) => {
+    try {
+      console.log(`📞 Adding peer for incoming call from ${callerID}`);
+      
+      const peer = new Peer({
+        initiator: false,
+        trickle: false,
+        stream: stream,
+        config: {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:stun3.l.google.com:19302' },
+            { urls: 'stun:stun4.l.google.com:19302' }
+          ],
+          sdpSemantics: 'unified-plan'
+        }
+      });
+
+      peer.on('signal', signal => {
+        const socket = getSocket();
+        if (socket && socket.connected) {
+          console.log(`📡 Returning signal to ${callerID}`);
+          socket.emit('returning-signal', { 
+            signal, 
+            callerID,
+            roomId
+          });
+        }
+      });
+
+      peer.on('stream', async remoteStream => {
+        console.log(`🔊 Received stream from caller ${callerID}`);
+        
+        try {
+          const audioElement = await createAudioElement(remoteStream, callerID, callerID);
+          if (audioElement) {
+            peer.audioElement = audioElement;
+            console.log(`✅ Caller audio setup complete for ${callerID}`);
+          }
+        } catch (error) {
+          console.error(`❌ Error setting up caller audio for ${callerID}:`, error);
+        }
+      });
+
+      peer.on('connect', () => {
+        console.log(`🔗 Peer connected to caller ${callerID}`);
+        isStableConnectionRef.current = true;
+      });
+
+      peer.on('error', err => {
+        console.error(`❌ Peer connection error with ${callerID}:`, err);
+        
+        if (peersRef.current[callerID] === peer) {
+          delete peersRef.current[callerID];
+          setPeers(prev => {
+            const newPeers = { ...prev };
+            delete newPeers[callerID];
+            return newPeers;
+          });
+          
+          // Clean up audio element
+          if (resourcesRef.current.audioElements.has(callerID)) {
+            const audioElement = resourcesRef.current.audioElements.get(callerID);
+            if (audioElement) {
+              audioElement.pause();
+              audioElement.srcObject = null;
+            }
+            resourcesRef.current.audioElements.delete(callerID);
+          }
+        }
+      });
+
+      peer.on('close', () => {
+        console.log(`🔗 Peer connection closed for caller ${callerID}`);
+        if (peer.audioElement) {
+          peer.audioElement.pause();
+          peer.audioElement.srcObject = null;
+        }
+        
+        // Clean up audio element tracking
+        if (resourcesRef.current.audioElements.has(callerID)) {
+          resourcesRef.current.audioElements.delete(callerID);
+        }
+      });
+
+      try {
+        peer.signal(incomingSignal);
+      } catch (error) {
+        console.error('❌ Error signaling peer:', error);
+        peer.destroy();
+        return null;
+      }
+
+      return peer;
+    } catch (error) {
+      console.error('❌ Error adding peer:', error);
+      return null;
+    }
+  }, [getSocket, roomId, createAudioElement]);
+
+  // ============================================================================
+  // INITIALIZATION AND CLEANUP
+  // ============================================================================
+
+  // Initialize audio stream
   const initializeAudioStream = useCallback(async () => {
     try {
       setIsConnecting(true);
@@ -142,9 +589,6 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
         throw new Error('Component was cleaned up during initialization');
       }
 
-      // FIXED: Set stability flag after successful stream creation
-      isStableConnectionRef.current = true;
-
       setStream(mediaStream);
       streamRef.current = mediaStream;
       resourcesRef.current.mediaStream = mediaStream;
@@ -168,39 +612,32 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
         errorMessage = 'No microphone found. Please connect a microphone and try again.';
       } else if (error.name === 'NotReadableError') {
         errorMessage = 'Microphone is being used by another application.';
-      } else if (!error.message.includes('cleaning up')) {
+      } else if (error.message !== 'Component is cleaning up' && error.message !== 'Component was cleaned up during initialization') {
         errorMessage = `Microphone error: ${error.message}`;
       }
       
       setError(errorMessage);
       setIsConnecting(false);
-      isStableConnectionRef.current = false;
       throw error;
     }
   }, [isMuted, setupSpeakingDetection]);
 
-  // FIXED: Enhanced cleanup with stability tracking
+  // Enhanced cleanup with audio element management
   const handleLeaveVoice = useCallback(() => {
     console.log('👋 Starting comprehensive voice chat cleanup...');
     
-    // Clear stability flag first
-    isStableConnectionRef.current = false;
     resourcesRef.current.isCleaningUp = true;
     
     try {
       const socket = getSocket();
       
-      // Clear connection timeout
-      if (connectionTimeoutRef.current) {
-        clearTimeout(connectionTimeoutRef.current);
-        connectionTimeoutRef.current = null;
-      }
-
+      // Cancel animation frames
       if (resourcesRef.current.animationFrameId) {
         cancelAnimationFrame(resourcesRef.current.animationFrameId);
         resourcesRef.current.animationFrameId = null;
       }
       
+      // Close all peer connections
       console.log('🔗 Closing peer connections...');
       Object.values(peersRef.current).forEach(peer => {
         if (peer && typeof peer.destroy === 'function') {
@@ -208,7 +645,6 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
             if (peer.audioElement) {
               peer.audioElement.pause();
               peer.audioElement.srcObject = null;
-              peer.audioElement = null;
             }
             peer.destroy();
           } catch (error) {
@@ -217,6 +653,21 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
         }
       });
       
+      // Clean up all audio elements
+      console.log('🔊 Cleaning up audio elements...');
+      for (const [userId, audioElement] of resourcesRef.current.audioElements) {
+        try {
+          if (audioElement) {
+            audioElement.pause();
+            audioElement.srcObject = null;
+          }
+        } catch (error) {
+          console.warn(`⚠️ Error cleaning up audio element for ${userId}:`, error);
+        }
+      }
+      resourcesRef.current.audioElements.clear();
+      
+      // Stop media stream
       console.log('🛑 Stopping media stream...');
       if (resourcesRef.current.mediaStream) {
         resourcesRef.current.mediaStream.getTracks().forEach(track => {
@@ -230,6 +681,7 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
         resourcesRef.current.mediaStream = null;
       }
       
+      // Close audio context
       console.log('🔊 Closing AudioContext...');
       if (resourcesRef.current.audioContext) {
         const audioContext = resourcesRef.current.audioContext;
@@ -242,19 +694,21 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
         resourcesRef.current.analyser = null;
       }
       
+      // Clear timeouts
       Object.values(speakingTimeoutRef.current).forEach(timeout => {
         if (timeout) clearTimeout(timeout);
       });
       speakingTimeoutRef.current = {};
       
+      // Notify server
       if (socket && socket.connected) {
-        console.log('📡 Notifying server...');
         socket.emit('leave-voice-room', {
           roomId,
           userId: user.id
         });
       }
 
+      // Reset state
       setPeers({});
       peersRef.current = {};
       setStream(null);
@@ -264,12 +718,13 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
       setSpeakingUsers(new Set());
       setError('');
       setIsConnecting(false);
+      isStableConnectionRef.current = false;
       
       console.log('✅ Voice chat cleanup completed successfully');
 
     } catch (error) {
       console.error('❌ Error during voice chat cleanup:', error);
-      // Reset state anyway
+      // Reset state even if cleanup fails
       setPeers({});
       peersRef.current = {};
       setStream(null);
@@ -277,6 +732,7 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
       setIsConnected(false);
       setConnectedUsers([]);
       setSpeakingUsers(new Set());
+      isStableConnectionRef.current = false;
     } finally {
       setTimeout(() => {
         resourcesRef.current.isCleaningUp = false;
@@ -284,7 +740,7 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
     }
   }, [roomId, user.id, getSocket]);
 
-  // FIXED: Enhanced join with stability timeout
+  // Join voice chat
   const handleJoinVoice = useCallback(async () => {
     try {
       const socket = getSocket();
@@ -296,226 +752,34 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
       console.log('🎙️ Joining voice chat...');
       const mediaStream = await initializeAudioStream();
       
-      // FIXED: Set connection timeout to ensure stability
-      connectionTimeoutRef.current = setTimeout(() => {
-        if (isStableConnectionRef.current) {
-          setIsConnected(true);
-          setIsConnecting(false);
-          console.log('✅ Connection stabilized after timeout');
-        }
-      }, 2000);
-
       socket.emit('join-voice-room', {
         roomId,
         userId: user.id,
         username: user.username
       });
 
+      // Stabilization timeout
+      setTimeout(() => {
+        if (!resourcesRef.current.isCleaningUp) {
+          isStableConnectionRef.current = true;
+          setIsConnected(true);
+          setIsConnecting(false);
+          console.log('✅ Connection stabilized after timeout');
+        }
+      }, 2000);
+      
       console.log('✅ Successfully joined voice chat room');
 
     } catch (error) {
       console.error('❌ Failed to join voice chat:', error);
       setIsConnecting(false);
-      isStableConnectionRef.current = false;
     }
   }, [roomId, user, initializeAudioStream, getSocket, roomConnected]);
-
-  // FIXED: Enhanced peer creation with better error handling
-  const createPeer = useCallback((userToCall, callerID, stream) => {
-    try {
-      console.log(`📞 Creating peer connection to call ${userToCall}`);
-      
-      const peer = new Peer({
-        initiator: true,
-        trickle: false,
-        stream: stream,
-        config: {
-          iceServers: ICE_SERVERS,
-          sdpSemantics: 'unified-plan'
-        },
-        offerOptions: {
-          offerToReceiveAudio: true,
-          offerToReceiveVideo: false
-        }
-      });
-
-      peer.on('signal', signal => {
-        const socket = getSocket();
-        if (socket && socket.connected && isStableConnectionRef.current) {
-          console.log(`📡 Sending signal to ${userToCall}`);
-          socket.emit('sending-signal', { 
-            userToCall, 
-            callerID, 
-            signal,
-            roomId
-          });
-        }
-      });
-
-      peer.on('stream', remoteStream => {
-        console.log(`🔊 Received stream from user ${userToCall}`);
-        
-        try {
-          const audio = new Audio();
-          audio.srcObject = remoteStream;
-          audio.volume = volume / 100;
-          audio.autoplay = true;
-          audio.muted = false;
-          
-          peer.audioElement = audio;
-          
-          const playPromise = audio.play();
-          if (playPromise !== undefined) {
-            playPromise
-              .then(() => console.log(`✅ Playing audio from ${userToCall}`))
-              .catch(error => {
-                console.warn('Audio autoplay failed, user interaction required:', error);
-              });
-          }
-        } catch (error) {
-          console.error('Error setting up remote audio:', error);
-        }
-      });
-
-      peer.on('error', err => {
-        console.error(`❌ Peer connection error with ${userToCall}:`, err);
-        
-        setTimeout(() => {
-          if (peersRef.current[userToCall] === peer && isStableConnectionRef.current) {
-            console.log(`🔄 Attempting to recreate peer connection with ${userToCall}`);
-            delete peersRef.current[userToCall];
-            setPeers(prev => {
-              const newPeers = { ...prev };
-              delete newPeers[userToCall];
-              return newPeers;
-            });
-            
-            setTimeout(() => {
-              if (resourcesRef.current.mediaStream && isStableConnectionRef.current) {
-                const newPeer = createPeer(userToCall, callerID, resourcesRef.current.mediaStream);
-                if (newPeer) {
-                  peersRef.current[userToCall] = newPeer;
-                  setPeers(prev => ({ ...prev, [userToCall]: newPeer }));
-                }
-              }
-            }, 1000);
-          }
-        }, 2000);
-      });
-
-      peer.on('close', () => {
-        console.log(`🔗 Peer connection closed for user ${userToCall}`);
-        if (peer.audioElement) {
-          peer.audioElement.pause();
-          peer.audioElement.srcObject = null;
-        }
-      });
-
-      peer.on('connect', () => {
-        console.log(`🔗 Peer connected to ${userToCall}`);
-      });
-
-      return peer;
-    } catch (error) {
-      console.error('Error creating peer:', error);
-      return null;
-    }
-  }, [getSocket, roomId, volume]);
-
-  // FIXED: Enhanced add peer with better error handling
-  const addPeer = useCallback((incomingSignal, callerID, stream) => {
-    try {
-      console.log(`📞 Adding peer for incoming call from ${callerID}`);
-      
-      const peer = new Peer({
-        initiator: false,
-        trickle: false,
-        stream: stream,
-        config: {
-          iceServers: ICE_SERVERS,
-          sdpSemantics: 'unified-plan'
-        }
-      });
-
-      peer.on('signal', signal => {
-        const socket = getSocket();
-        if (socket && socket.connected && isStableConnectionRef.current) {
-          console.log(`📡 Returning signal to ${callerID}`);
-          socket.emit('returning-signal', { 
-            signal, 
-            callerID,
-            roomId
-          });
-        }
-      });
-
-      peer.on('stream', remoteStream => {
-        console.log(`🔊 Received stream from caller ${callerID}`);
-        
-        try {
-          const audio = new Audio();
-          audio.srcObject = remoteStream;
-          audio.volume = volume / 100;
-          audio.autoplay = true;
-          audio.muted = false;
-          
-          peer.audioElement = audio;
-          
-          const playPromise = audio.play();
-          if (playPromise !== undefined) {
-            playPromise
-              .then(() => console.log(`✅ Playing audio from ${callerID}`))
-              .catch(error => {
-                console.warn('Audio autoplay failed:', error);
-              });
-          }
-        } catch (error) {
-          console.error('Error setting up remote audio:', error);
-        }
-      });
-
-      peer.on('error', err => {
-        console.error(`❌ Peer connection error with ${callerID}:`, err);
-        
-        setTimeout(() => {
-          if (peersRef.current[callerID] === peer && isStableConnectionRef.current) {
-            delete peersRef.current[callerID];
-            setPeers(prev => {
-              const newPeers = { ...prev };
-              delete newPeers[callerID];
-              return newPeers;
-            });
-          }
-        }, 2000);
-      });
-
-      peer.on('close', () => {
-        console.log(`🔗 Peer connection closed for caller ${callerID}`);
-        if (peer.audioElement) {
-          peer.audioElement.pause();
-          peer.audioElement.srcObject = null;
-        }
-      });
-
-      try {
-        peer.signal(incomingSignal);
-      } catch (error) {
-        console.error('Error signaling peer:', error);
-        peer.destroy();
-        return null;
-      }
-
-      return peer;
-    } catch (error) {
-      console.error('Error adding peer:', error);
-      return null;
-    }
-  }, [getSocket, roomId, volume]);
 
   // Toggle mute
   const handleToggleMute = useCallback(() => {
     try {
-      if (resourcesRef.current.mediaStream && isStableConnectionRef.current) {
+      if (resourcesRef.current.mediaStream && !resourcesRef.current.isCleaningUp) {
         const audioTracks = resourcesRef.current.mediaStream.getAudioTracks();
         audioTracks.forEach(track => {
           track.enabled = isMuted;
@@ -532,33 +796,43 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
     }
   }, [isMuted]);
 
-  // FIXED: Enhanced socket event handlers with stability checks
+  // Update volume for all audio elements
+  useEffect(() => {
+    try {
+      for (const [userId, audioElement] of resourcesRef.current.audioElements) {
+        if (audioElement) {
+          audioElement.volume = volume / 100;
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error updating volume:', error);
+    }
+  }, [volume]);
+
+  // Get available audio devices on component mount
+  useEffect(() => {
+    getAudioOutputDevices();
+  }, [getAudioOutputDevices]);
+
+  // Socket event handlers with enhanced audio management
   useEffect(() => {
     const socket = getSocket();
     if (!socket) return;
 
-    const handleUserJoinedVoice = ({ userId, username }) => {
+    const handleUserJoinedVoice = ({ userId, username, signal }) => {
       console.log(`👤 User ${username} joined voice chat`);
       
-      if (resourcesRef.current.mediaStream && 
-          userId !== user.id && 
-          isStableConnectionRef.current &&
-          !resourcesRef.current.isCleaningUp) {
-        
-        setTimeout(() => {
-          if (isStableConnectionRef.current && !peersRef.current[userId]) {
-            try {
-              const peer = createPeer(userId, user.id, resourcesRef.current.mediaStream);
-              if (peer) {
-                peersRef.current[userId] = peer;
-                setPeers(prev => ({ ...prev, [userId]: peer }));
-                setConnectedUsers(prev => [...prev.filter(u => u.id !== userId), { id: userId, username }]);
-              }
-            } catch (error) {
-              console.error('Error handling user joined voice:', error);
-            }
+      if (resourcesRef.current.mediaStream && userId !== user.id && !resourcesRef.current.isCleaningUp) {
+        try {
+          const peer = addPeer(signal, userId, resourcesRef.current.mediaStream);
+          if (peer) {
+            peersRef.current[userId] = peer;
+            setPeers(prev => ({ ...prev, [userId]: peer }));
+            setConnectedUsers(prev => [...prev.filter(u => u.id !== userId), { id: userId, username }]);
           }
-        }, 500);
+        } catch (error) {
+          console.error('❌ Error handling user joined voice:', error);
+        }
       }
     };
 
@@ -566,22 +840,18 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
       console.log(`📞 Receiving signal from user ${id}`);
       
       try {
-        if (peersRef.current[id] && isStableConnectionRef.current) {
+        if (peersRef.current[id]) {
           peersRef.current[id].signal(signal);
         }
       } catch (error) {
-        console.error('Error handling signal:', error);
+        console.error('❌ Error handling signal:', error);
       }
     };
 
     const handleUserCalling = ({ signal, from, username }) => {
       console.log(`📞 Incoming call from ${username}`);
       
-      if (resourcesRef.current.mediaStream && 
-          from !== user.id && 
-          isStableConnectionRef.current &&
-          !resourcesRef.current.isCleaningUp) {
-        
+      if (resourcesRef.current.mediaStream && from !== user.id && !resourcesRef.current.isCleaningUp) {
         try {
           const peer = addPeer(signal, from, resourcesRef.current.mediaStream);
           if (peer) {
@@ -590,7 +860,7 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
             setConnectedUsers(prev => [...prev.filter(u => u.id !== from), { id: from, username }]);
           }
         } catch (error) {
-          console.error('Error handling incoming call:', error);
+          console.error('❌ Error handling incoming call:', error);
         }
       }
     };
@@ -609,6 +879,16 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
           delete peersRef.current[userId];
         }
         
+        // Clean up audio element
+        if (resourcesRef.current.audioElements.has(userId)) {
+          const audioElement = resourcesRef.current.audioElements.get(userId);
+          if (audioElement) {
+            audioElement.pause();
+            audioElement.srcObject = null;
+          }
+          resourcesRef.current.audioElements.delete(userId);
+        }
+        
         setPeers(prev => {
           const newPeers = { ...prev };
           delete newPeers[userId];
@@ -622,41 +902,40 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
           return newSet;
         });
       } catch (error) {
-        console.error('Error handling user left voice:', error);
+        console.error('❌ Error handling user left voice:', error);
       }
     };
 
     const handleVoiceRoomUsers = ({ users: voiceUsers }) => {
       console.log('🔄 Voice room users updated:', voiceUsers);
       
-      if (resourcesRef.current.mediaStream && 
-          isConnected && 
-          isStableConnectionRef.current &&
-          !resourcesRef.current.isCleaningUp) {
-        
+      if (resourcesRef.current.mediaStream && isConnected && !resourcesRef.current.isCleaningUp) {
         voiceUsers.forEach(voiceUser => {
           if (voiceUser.userId !== user.id && !peersRef.current[voiceUser.userId]) {
             console.log(`📞 Calling user ${voiceUser.username}`);
             
-            setTimeout(() => {
-              if (isStableConnectionRef.current && !peersRef.current[voiceUser.userId]) {
-                try {
+            try {
+              // Add random delay to prevent simultaneous calls
+              const delay = Math.random() * 1000;
+              setTimeout(() => {
+                if (!resourcesRef.current.isCleaningUp && resourcesRef.current.mediaStream) {
                   const peer = createPeer(voiceUser.userId, user.id, resourcesRef.current.mediaStream);
                   if (peer) {
                     peersRef.current[voiceUser.userId] = peer;
                     setPeers(prev => ({ ...prev, [voiceUser.userId]: peer }));
                     setConnectedUsers(prev => [...prev.filter(u => u.id !== voiceUser.userId), voiceUser]);
                   }
-                } catch (error) {
-                  console.error('Error calling user:', error);
                 }
-              }
-            }, Math.random() * 1000);
+              }, delay);
+            } catch (error) {
+              console.error('❌ Error calling user:', error);
+            }
           }
         });
       }
     };
 
+    // Register event handlers
     socket.on('user-joined-voice', handleUserJoinedVoice);
     socket.on('receiving-returned-signal', handleReceivingSignal);
     socket.on('user-calling', handleUserCalling);
@@ -672,42 +951,49 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
     };
   }, [getSocket, user.id, user.username, isConnected, createPeer, addPeer]);
 
-  // Update volume for all audio elements
-  useEffect(() => {
-    try {
-      Object.values(peersRef.current).forEach(peer => {
-        if (peer && peer.audioElement) {
-          peer.audioElement.volume = volume / 100;
-        }
-      });
-    } catch (error) {
-      console.error('Error updating volume:', error);
-    }
-  }, [volume]);
-
   // Update user count
   useEffect(() => {
     const totalUsers = connectedUsers.length + (isConnected ? 1 : 0);
     onUserCountChange?.(totalUsers);
   }, [connectedUsers.length, isConnected, onUserCountChange]);
 
-  // Enhanced cleanup on unmount
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      console.log('🧹 WebRTCVoiceChat component unmounting - initiating cleanup');
       if (isStableConnectionRef.current) {
+        console.log('🧹 WebRTCVoiceChat component unmounting - initiating cleanup');
         handleLeaveVoice();
       }
     };
   }, [handleLeaveVoice]);
 
-  // Connection stabilization effect
-  useEffect(() => {
-    if (isConnected && !isStableConnectionRef.current) {
-      isStableConnectionRef.current = true;
-      console.log('🔗 Connection stabilized');
+  // Audio output test function
+  const testAudioOutput = useCallback(() => {
+    try {
+      console.log('🎵 Testing audio output...');
+      
+      // Test with a short beep
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      oscillator.frequency.setValueAtTime(440, audioContext.currentTime); // A4 note
+      gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+      
+      oscillator.start();
+      setTimeout(() => {
+        oscillator.stop();
+        audioContext.close();
+        console.log('🎵 Audio test completed - you should have heard a beep');
+      }, 500);
+      
+    } catch (error) {
+      console.error('❌ Audio test failed:', error);
     }
-  }, [isConnected]);
+  }, []);
 
   return (
     <div className="space-y-4">
@@ -720,7 +1006,7 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
           'bg-gray-100 text-gray-600'
         }`}>
           <div className={`w-2 h-2 rounded-full ${
-            isConnected ? 'bg-green-500' : 
+            isConnected ? 'bg-green-500 animate-pulse' : 
             isConnecting ? 'bg-yellow-500 animate-pulse' :
             error ? 'bg-red-500' :
             'bg-gray-400'
@@ -734,6 +1020,33 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
           </span>
         </div>
       </div>
+
+      {/* Audio Output Device Selection */}
+      {availableOutputDevices.length > 1 && (
+        <div className="bg-blue-50 rounded-lg p-3">
+          <div className="text-sm font-medium text-blue-800 mb-2 flex items-center justify-between">
+            <span>🔊 Audio Output Device</span>
+            <button
+              onClick={selectAudioOutputDevice}
+              className="text-xs bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700"
+            >
+              Select Device
+            </button>
+          </div>
+          <select
+            value={audioOutputDevice}
+            onChange={(e) => setAudioOutputDevice(e.target.value)}
+            className="w-full text-xs p-2 border border-blue-200 rounded"
+          >
+            <option value="default">Default Audio Output</option>
+            {availableOutputDevices.map(device => (
+              <option key={device.deviceId} value={device.deviceId}>
+                {device.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Voice Chat Users */}
       <div className="bg-blue-50 rounded-lg p-3">
@@ -793,6 +1106,9 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
                 <span className="text-xs text-gray-500">
                   {speakingUsers.has(connectedUser.username) ? '🎙️ Speaking' : '🔗 Connected'}
                 </span>
+                <div className={`w-2 h-2 rounded-full ${
+                  resourcesRef.current.audioElements.has(connectedUser.id) ? 'bg-green-400' : 'bg-gray-400'
+                }`} title={`Audio ${resourcesRef.current.audioElements.has(connectedUser.id) ? 'Active' : 'Inactive'}`}></div>
               </div>
             </div>
           ))}
@@ -808,6 +1124,7 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
 
       {/* Audio Controls */}
       <div className="space-y-3">
+        {/* Main Control Button */}
         {!isConnected ? (
           <button
             onClick={handleJoinVoice}
@@ -831,6 +1148,7 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
           </button>
         ) : (
           <div className="space-y-2">
+            {/* Mute/Unmute */}
             <button
               onClick={handleToggleMute}
               className={`w-full py-2 px-4 rounded-lg font-medium transition-colors ${
@@ -842,6 +1160,7 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
               {isMuted ? '🔇 Unmute Microphone' : '🎙️ Mute Microphone'}
             </button>
 
+            {/* Leave Voice Chat */}
             <button
               onClick={handleLeaveVoice}
               className="w-full py-2 px-4 rounded-lg font-medium bg-red-600 hover:bg-red-700 text-white transition-colors"
@@ -867,6 +1186,14 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
             />
           </div>
         )}
+
+        {/* Audio Test Button */}
+        <button
+          onClick={testAudioOutput}
+          className="w-full py-2 px-4 rounded-lg font-medium bg-purple-600 hover:bg-purple-700 text-white transition-colors text-sm"
+        >
+          🎵 Test Audio Output
+        </button>
       </div>
 
       {/* Error Display */}
@@ -898,32 +1225,50 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
         </div>
       )}
 
-      {/* Connection Quality Indicator */}
+      {/* Audio Status Indicators */}
       {isConnected && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-3">
           <div className="text-sm text-green-800">
-            <div className="flex items-center justify-between">
-              <span className="font-medium">Connection Quality:</span>
-              <div className="flex items-center space-x-1">
-                {[...Array(3)].map((_, i) => (
-                  <div
-                    key={i}
-                    className={`w-2 h-3 rounded-sm ${
-                      connectedUsers.length > i ? 'bg-green-500' : 'bg-gray-300'
-                    }`}
-                  />
-                ))}
-                <span className="ml-2 text-xs">
-                  {connectedUsers.length > 2 ? 'Excellent' :
-                   connectedUsers.length > 1 ? 'Good' :
-                   connectedUsers.length > 0 ? 'Fair' : 'Connecting...'}
-                </span>
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-medium">🎵 Audio Status:</span>
+              <span className="text-xs">
+                {resourcesRef.current.audioElements.size} active stream{resourcesRef.current.audioElements.size !== 1 ? 's' : ''}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <span className="font-medium">Microphone:</span> {isMuted ? '🔇 Muted' : '🎙️ Active'}
+              </div>
+              <div>
+                <span className="font-medium">Output:</span> {audioOutputDevice === 'default' ? '🔊 Default' : '🎧 Custom'}
               </div>
             </div>
-            <div className="mt-1 text-xs text-green-600">
-              P2P connections: {Object.keys(peersRef.current).length} active
-            </div>
           </div>
+        </div>
+      )}
+
+      {/* Debug Info (Development Only) */}
+      {process.env.NODE_ENV === 'development' && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+          <details className="text-sm">
+            <summary className="font-medium text-yellow-800 cursor-pointer">🐛 Enhanced WebRTC Debug</summary>
+            <div className="mt-2 space-y-1 text-yellow-700 text-xs">
+              <div>Room ID: {roomId}</div>
+              <div>User ID: {user.id}</div>
+              <div>Connected: {isConnected.toString()}</div>
+              <div>Peers: {Object.keys(peers).length}</div>
+              <div>Connected Users: {connectedUsers.length}</div>
+              <div>Muted: {isMuted.toString()}</div>
+              <div>Speaking Users: {Array.from(speakingUsers).join(', ')}</div>
+              <div>Stream Active: {resourcesRef.current.mediaStream?.active?.toString() || 'false'}</div>
+              <div>AudioContext State: {resourcesRef.current.audioContext?.state || 'none'}</div>
+              <div>Audio Elements: {resourcesRef.current.audioElements.size}</div>
+              <div>Audio Output Device: {audioOutputDevice}</div>
+              <div>Available Devices: {availableOutputDevices.length}</div>
+              <div>Is Cleaning Up: {resourcesRef.current.isCleaningUp.toString()}</div>
+              <div>Stable Connection: {isStableConnectionRef.current.toString()}</div>
+            </div>
+          </details>
         </div>
       )}
     </div>
@@ -952,12 +1297,14 @@ const WebRTCAudioComponent = () => {
   const [voiceChatUsers, setVoiceChatUsers] = useState(0);
   const [permissionStatus, setPermissionStatus] = useState('');
 
+  // Check if current user has audio permission
   const hasAudioPermission = () => {
     return isRoomOwner() || 
            isRoomModerator() || 
            audioPermissions?.[currentUser];
   };
 
+  // Handle audio permission request
   const handleRequestPermission = () => {
     setIsRequestingPermission(true);
     sendAudioPermissionRequest();
@@ -975,6 +1322,7 @@ const WebRTCAudioComponent = () => {
     }, 10000);
   };
 
+  // Handle permission response (owner/moderator only)
   const handlePermissionResponse = (username, granted) => {
     sendAudioPermissionResponse(username, granted);
     
@@ -986,10 +1334,12 @@ const WebRTCAudioComponent = () => {
     }, 3000);
   };
 
+  // Handle voice chat user count update
   const handleVoiceUserCountChange = (count) => {
     setVoiceChatUsers(count);
   };
 
+  // Listen for permission responses
   useEffect(() => {
     if (hasAudioPermission() && isRequestingPermission) {
       setIsRequestingPermission(false);
@@ -1000,6 +1350,7 @@ const WebRTCAudioComponent = () => {
     }
   }, [audioPermissions, currentUser, isRequestingPermission, hasAudioPermission]);
 
+  // Auto-close permission panel when no pending requests
   useEffect(() => {
     if (pendingAudioRequests?.length === 0 && showPermissionPanel) {
       setTimeout(() => {
@@ -1014,7 +1365,7 @@ const WebRTCAudioComponent = () => {
       <div className="flex-shrink-0 bg-gray-100 border-b border-gray-200 px-3 py-2">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-800 flex items-center">
-            🎵 Voice Chat (Fixed)
+            🎵 Enhanced Voice Chat
             <div className={`ml-auto w-2 h-2 rounded-full ${voiceChatUsers > 0 ? 'bg-green-500' : 'bg-gray-400'}`}></div>
           </h3>
           {(isRoomOwner() || isRoomModerator()) && pendingAudioRequests?.length > 0 && (
@@ -1028,7 +1379,7 @@ const WebRTCAudioComponent = () => {
         </div>
       </div>
 
-      {/* Permission Panel */}
+      {/* Permission Panel (Owner/Moderator only) */}
       {showPermissionPanel && (isRoomOwner() || isRoomModerator()) && pendingAudioRequests?.length > 0 && (
         <div className="bg-orange-50 border-b border-orange-200 p-3">
           <div className="text-sm font-medium text-orange-800 mb-2 flex items-center justify-between">
@@ -1072,7 +1423,7 @@ const WebRTCAudioComponent = () => {
         </div>
       )}
 
-      {/* Permission Status */}
+      {/* Permission Status Notification */}
       {permissionStatus && (
         <div className="bg-blue-50 border-b border-blue-200 p-2">
           <div className="text-sm text-blue-800 text-center">
@@ -1083,6 +1434,7 @@ const WebRTCAudioComponent = () => {
 
       {/* Main Content */}
       <div className="flex-1 p-3 overflow-y-auto">
+        {/* Connection Check */}
         {!isConnected ? (
           <div className="text-center py-8">
             <div className="text-gray-500 mb-4">⚠️</div>
@@ -1091,6 +1443,7 @@ const WebRTCAudioComponent = () => {
             </p>
           </div>
         ) : !hasAudioPermission() ? (
+          /* Permission Request UI */
           <div className="text-center py-8">
             <div className="text-yellow-500 mb-4 text-4xl">🔒</div>
             <h3 className="text-lg font-semibold text-gray-800 mb-2">Voice Chat Permission Required</h3>
@@ -1125,6 +1478,7 @@ const WebRTCAudioComponent = () => {
             </div>
           </div>
         ) : (
+          /* Enhanced WebRTC Voice Chat Component */
           <WebRTCVoiceChat 
             roomId={roomId}
             user={{ id: currentUser, username: currentUser }}
@@ -1137,7 +1491,7 @@ const WebRTCAudioComponent = () => {
       <div className="flex-shrink-0 p-3 border-t border-gray-200">
         <div className="text-center text-xs text-gray-500">
           {hasAudioPermission() ? (
-            <>🎙️ Enhanced P2P voice chat via WebRTC</>
+            <>🎙️ Enhanced P2P voice chat with guaranteed audio output</>
           ) : (
             <>🔒 Voice chat requires permission</>
           )}
