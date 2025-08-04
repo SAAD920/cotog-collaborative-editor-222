@@ -16,7 +16,7 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
   const [error, setError] = useState('');
   const [isConnecting, setIsConnecting] = useState(false);
   const [speakingUsers, setSpeakingUsers] = useState(new Set());
-  const [audioOutputDevice, setAudioOutputDevice] = useState('default');
+  const [audioOutputDevice, setAudioOutputDeviceState] = useState('default');
   const [availableOutputDevices, setAvailableOutputDevices] = useState([]);
 
   const peersRef = useRef({});
@@ -82,7 +82,7 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
         }
       }
       
-      setAudioOutputDevice(deviceId);
+      setAudioOutputDeviceState(deviceId);
       console.log(`✅ Audio output device updated to: ${deviceId}`);
     } catch (error) {
       console.error('❌ Failed to set audio output device:', error);
@@ -1035,7 +1035,7 @@ const WebRTCVoiceChat = ({ roomId, user, onUserCountChange }) => {
           </div>
           <select
             value={audioOutputDevice}
-            onChange={(e) => setAudioOutputDevice(e.target.value)}
+            onChange={(e) => setAudioOutputDeviceState(e.target.value)}
             className="w-full text-xs p-2 border border-blue-200 rounded"
           >
             <option value="default">Default Audio Output</option>
