@@ -1,4 +1,4 @@
-// src/components/EnterRoomCard.js
+// src/components/EnterRoomCard.js - FIXED VERSION WITH PROPER NAVIGATION
 import React, { useState } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/contexts/AuthContext';
@@ -62,6 +62,7 @@ const EnterRoomCard = () => {
     }
   };
 
+  // ✅ FIXED: This is the function that was causing the href interpolation error
   const handleJoinRoom = async (e) => {
     e.preventDefault();
     
@@ -76,16 +77,32 @@ const EnterRoomCard = () => {
       
       console.log('Room found:', roomData);
       
-      // If room exists, redirect to the room page with credentials
-      // No need to pass username since it comes from the authenticated user
-      router.push({
-        pathname: `/room/${formData.roomId.trim()}`,
-        query: {
-          roomId: formData.roomId.trim(),
-          roomPassword: formData.roomPassword,
-          maxUsers: roomData.maxUsers,
-        },
+      // ✅ CRITICAL FIX: Use actual roomId value, NOT [roomId] template
+      const roomId = formData.roomId.trim();
+      
+      // Validate roomId doesn't contain brackets (additional safety check)
+      if (roomId.includes('[') || roomId.includes(']')) {
+        throw new Error('Invalid room ID format');
+      }
+      
+      // ✅ METHOD 1: Using template literal with query string (RECOMMENDED)
+      const queryParams = new URLSearchParams({
+        roomPassword: formData.roomPassword,
+        maxUsers: roomData.maxUsers.toString()
       });
+      
+      const roomUrl = `/room/${roomId}?${queryParams.toString()}`;
+      console.log('🚀 Navigating to room:', roomUrl);
+      router.push(roomUrl);
+      
+      // ✅ ALTERNATIVE METHOD 2: Using router object (also works)
+      // router.push({
+      //   pathname: `/room/${roomId}`,  // ← Use actual roomId, NOT [roomId]
+      //   query: {
+      //     roomPassword: formData.roomPassword,
+      //     maxUsers: roomData.maxUsers,
+      //   },
+      // });
       
     } catch (err) {
       setError(err.message || 'Failed to join room. Please try again.');

@@ -12,7 +12,7 @@ class ErrorBoundary extends React.Component {
     };
   }
 
-  // 🆕 Catch errors during rendering
+  //  Catch errors during rendering
   static getDerivedStateFromError(error) {
     // Update state so the next render will show the fallback UI
     return { 
@@ -21,7 +21,7 @@ class ErrorBoundary extends React.Component {
     };
   }
 
-  // 🆕 Log error details and potentially send to error reporting service
+  //  Log error details and potentially send to error reporting service
   componentDidCatch(error, errorInfo) {
     // Store error details for debugging
     this.setState({
@@ -37,7 +37,7 @@ class ErrorBoundary extends React.Component {
     console.error('Error Stack:', error.stack);
     console.groupEnd();
 
-    // 🆕 Generate unique error ID for tracking
+    //  Generate unique error ID for tracking
     const eventId = Date.now().toString(36) + Math.random().toString(36).substr(2);
     this.setState({ eventId });
 
@@ -45,7 +45,7 @@ class ErrorBoundary extends React.Component {
     // this.sendErrorToService(error, errorInfo, eventId);
   }
 
-  // 🆕 Optional: Send error to external monitoring service
+  //  Optional: Send error to external monitoring service
   sendErrorToService = (error, errorInfo, eventId) => {
     try {
       // Example: Send to Sentry, LogRocket, or custom endpoint
@@ -70,7 +70,7 @@ class ErrorBoundary extends React.Component {
     }
   };
 
-  // 🆕 Reset error boundary state
+  //  Reset error boundary state
   handleReset = () => {
     this.setState({
       hasError: false,
@@ -80,17 +80,17 @@ class ErrorBoundary extends React.Component {
     });
   };
 
-  // 🆕 Reload the entire application
+  //  Reload the entire application
   handleReload = () => {
     window.location.reload();
   };
 
-  // 🆕 Navigate back to home
+  //  Navigate back to home
   handleGoHome = () => {
     window.location.href = '/';
   };
 
-  // 🆕 Copy error details to clipboard for support
+  //  Copy error details to clipboard for support
   handleCopyError = async () => {
     const errorDetails = {
       eventId: this.state.eventId,
@@ -118,7 +118,7 @@ class ErrorBoundary extends React.Component {
     }
   };
 
-  // 🆕 Determine error category for better messaging
+  //  Determine error category for better messaging
   getErrorCategory = (error) => {
     if (!error) return 'unknown';
     
@@ -157,7 +157,7 @@ class ErrorBoundary extends React.Component {
     return 'general';
   };
 
-  // 🆕 Get user-friendly error message based on category
+  //  Get user-friendly error message based on category
   getErrorMessage = (category) => {
     const messages = {
       webrtc: {

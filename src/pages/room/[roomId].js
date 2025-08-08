@@ -1,11 +1,11 @@
-// src/pages/room/[roomId].js - UPDATED WITH WEBRTC INTEGRATION
-import React, { useEffect, useState } from 'react';
+// src/pages/room/[roomId].js - FIXED WITH OPTIMIZED useEffect AND NAVIGATION
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import Navbar from '@/components/Navbar';
 import CollaborativeCodeEditor from '@/components/CollaborativeCodeEditor';
 import Chat from '@/components/Chat';
-// Import the new WebRTC component instead of the old Audio component
 import WebRTCAudioComponent from '@/components/WebRTCAudioComponent';
+import ErrorBoundary from '@/components/ErrorBoundary';
 import { useAuth, ProtectedRoute } from '@/contexts/AuthContext';
 import { RoomProvider, useRoom } from '@/contexts/RoomContext';
 
@@ -27,42 +27,141 @@ const RoomContent = () => {
   } = useRoom();
 
   const [debugInfo, setDebugInfo] = useState([]);
-  const [hasTriedJoin, setHasTriedJoin] = useState(false);
+  const [joinState, setJoinState] = useState({
+    hasAttempted: false,
+    isProcessing: false,
+    lastAttemptTime: 0,
+    attemptId: null
+  });
+
+  // 🔧 FIX 1: Memoize room credentials to prevent unnecessary re-renders
+  const roomCredentials = useMemo(() => {
+    if (!roomId || !router.query.roomPassword) return null;
+    
+    return {
+      roomId: String(roomId),
+      roomPassword: String(router.query.roomPassword),
+      maxUsers: router.query.maxUsers ? Number(router.query.maxUsers) : undefined
+    };
+  }, [roomId, router.query.roomPassword, router.query.maxUsers]);
 
   // Debug logging function
-  const addDebugLog = (message) => {
+  const addDebugLog = useCallback((message) => {
     console.log(`🐛 [Room Debug]: ${message}`);
     setDebugInfo(prev => [...prev.slice(-9), `${new Date().toLocaleTimeString()}: ${message}`]);
-  };
+  }, []);
 
-  // Auto-join room when component mounts
-  useEffect(() => {
-    addDebugLog(`useEffect triggered - roomId: ${roomId}, user: ${!!user}, hasTriedJoin: ${hasTriedJoin}`);
+  // 🔧 FIX 2: Memoized join function to prevent recreation
+  const handleJoinRoom = useCallback(async (credentials) => {
+    const currentTime = Date.now();
+    const attemptId = `${credentials.roomId}-${currentTime}-${Math.random().toString(36).substr(2, 5)}`;
     
-    if (roomId && user && router.query.roomPassword && !hasTriedJoin) {
-      const { roomPassword } = router.query;
-      
-      addDebugLog(`Attempting to join room: ${roomId} with password: ${roomPassword ? 'PROVIDED' : 'MISSING'}`);
-      setHasTriedJoin(true);
-      
-      joinRoom(roomId, roomPassword)
-        .then(success => {
-          addDebugLog(`Join room result: ${success}`);
-        })
-        .catch(err => {
-          addDebugLog(`Join room error: ${err.message}`);
-        });
-    } else {
-      addDebugLog(`Join conditions not met: roomId=${!!roomId}, user=${!!user}, password=${!!router.query.roomPassword}, hasTriedJoin=${hasTriedJoin}`);
+    // Prevent rapid successive calls
+    if (currentTime - joinState.lastAttemptTime < 3000) {
+      addDebugLog(`Skipping join - too soon since last attempt (${currentTime - joinState.lastAttemptTime}ms ago)`);
+      return false;
     }
-  }, [roomId, user, router.query.roomPassword, hasTriedJoin, joinRoom]);
 
-  // Debug current state
+    // Prevent duplicate processing
+    if (joinState.isProcessing) {
+      addDebugLog('Skipping join - already processing');
+      return false;
+    }
+
+    // Check if already successfully connected
+    if (isConnected && roomInfo && !error) {
+      addDebugLog('Skipping join - already connected and no errors');
+      return true;
+    }
+
+    addDebugLog(`Starting join attempt: ${attemptId}`);
+    
+    setJoinState({
+      hasAttempted: true,
+      isProcessing: true,
+      lastAttemptTime: currentTime,
+      attemptId
+    });
+
+    try {
+      const success = await joinRoom(credentials.roomId, credentials.roomPassword);
+      addDebugLog(`Join attempt ${attemptId} result: ${success}`);
+      
+      setJoinState(prev => ({
+        ...prev,
+        isProcessing: false
+      }));
+      
+      return success;
+    } catch (error) {
+      addDebugLog(`Join attempt ${attemptId} failed: ${error.message}`);
+      
+      setJoinState(prev => ({
+        ...prev,
+        isProcessing: false
+      }));
+      
+      return false;
+    }
+  }, [joinRoom, joinState.lastAttemptTime, joinState.isProcessing, isConnected, roomInfo, error, addDebugLog]);
+
+  // 🔧 FIX 3: Optimized useEffect with proper dependencies and conditions
   useEffect(() => {
-    addDebugLog(`State update - isLoading: ${isLoading}, isConnected: ${isConnected}, error: ${error}, roomInfo: ${!!roomInfo}`);
-  }, [isLoading, isConnected, error, roomInfo]);
+    // Only proceed if we have all required data
+    if (!roomCredentials || !user) {
+      addDebugLog(`Missing requirements - credentials: ${!!roomCredentials}, user: ${!!user}`);
+      return;
+    }
 
-  // Loading state with debug info
+    // Don't attempt if already processing or recently attempted
+    if (joinState.isProcessing) {
+      addDebugLog('Join already in progress, skipping');
+      return;
+    }
+
+    // Don't attempt if already successfully connected without errors
+    if (isConnected && roomInfo && !error && joinState.hasAttempted) {
+      addDebugLog('Already connected successfully, skipping');
+      return;
+    }
+
+    // Don't attempt if we recently tried (debounce)
+    const timeSinceLastAttempt = Date.now() - joinState.lastAttemptTime;
+    if (joinState.hasAttempted && timeSinceLastAttempt < 5000) {
+      addDebugLog(`Recently attempted join ${timeSinceLastAttempt}ms ago, waiting...`);
+      return;
+    }
+
+    // Proceed with join attempt
+    addDebugLog(`Initiating join for room ${roomCredentials.roomId}`);
+    handleJoinRoom(roomCredentials);
+
+  }, [
+    roomCredentials, 
+    user?.id, // Only depend on user ID to prevent unnecessary re-runs
+    joinState.isProcessing,
+    joinState.hasAttempted,
+    joinState.lastAttemptTime,
+    isConnected,
+    roomInfo,
+    error,
+    handleJoinRoom,
+    addDebugLog
+  ]);
+
+  // 🔧 FIX 4: Reset join state when leaving/unmounting
+  useEffect(() => {
+    return () => {
+      setJoinState({
+        hasAttempted: false,
+        isProcessing: false,
+        lastAttemptTime: 0,
+        attemptId: null
+      });
+    };
+  }, []);
+
+  // Loading state with enhanced debug info
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-100">
@@ -73,16 +172,18 @@ const RoomContent = () => {
             <h2 className="text-xl font-semibold text-gray-700 mb-2">Joining Room</h2>
             <p className="text-gray-600 mb-4">Connecting to collaborative workspace...</p>
             
-            {/* Debug Information */}
+            {/* Enhanced Debug Information */}
             <div className="bg-gray-50 rounded-lg p-4 text-left">
               <h3 className="text-sm font-semibold text-gray-700 mb-2">🐛 Debug Info:</h3>
               <div className="space-y-1 text-xs text-gray-600 max-h-32 overflow-y-auto">
-                <div>Room ID: {roomId || 'Not set'}</div>
+                <div>Room ID: {roomCredentials?.roomId || 'Not set'}</div>
                 <div>User: {user?.username || 'Not authenticated'}</div>
-                <div>Password: {router.query.roomPassword ? 'Provided' : 'Missing'}</div>
-                <div>Has Tried Join: {hasTriedJoin.toString()}</div>
+                <div>Password: {roomCredentials?.roomPassword ? 'Provided' : 'Missing'}</div>
+                <div>Has Attempted: {joinState.hasAttempted.toString()}</div>
+                <div>Is Processing: {joinState.isProcessing.toString()}</div>
                 <div>Is Connected: {isConnected.toString()}</div>
                 <div>Current User: {currentUser || 'None'}</div>
+                <div>Attempt ID: {joinState.attemptId || 'None'}</div>
                 <div className="border-t pt-2 mt-2">
                   <div className="font-semibold">Recent logs:</div>
                   {debugInfo.slice(-5).map((log, i) => (
@@ -113,7 +214,12 @@ const RoomContent = () => {
               <button
                 onClick={() => {
                   addDebugLog('Manual retry triggered');
-                  setHasTriedJoin(false);
+                  setJoinState({
+                    hasAttempted: false,
+                    isProcessing: false,
+                    lastAttemptTime: 0,
+                    attemptId: null
+                  });
                 }}
                 className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm"
               >
@@ -132,7 +238,7 @@ const RoomContent = () => {
     );
   }
 
-  // Error state
+  // Error state with enhanced debugging
   if (error) {
     return (
       <div className="min-h-screen bg-gray-100">
@@ -143,14 +249,15 @@ const RoomContent = () => {
             <h2 className="text-2xl font-bold mb-2 text-red-600">Connection Error</h2>
             <p className="text-gray-700 mb-6">{error}</p>
             
-            {/* Debug Information for Errors */}
+            {/* Enhanced Debug Information for Errors */}
             <div className="bg-red-50 rounded-lg p-4 text-left mb-6">
               <h3 className="text-sm font-semibold text-red-700 mb-2">🐛 Error Debug:</h3>
               <div className="space-y-1 text-xs text-red-600">
-                <div>Room ID: {roomId}</div>
+                <div>Room ID: {roomCredentials?.roomId}</div>
                 <div>User: {user?.username}</div>
                 <div>Auth Token: {localStorage.getItem('auth_token') ? 'Present' : 'Missing'}</div>
                 <div>Server URL: https://cotog-backend.onrender.com</div>
+                <div>Join State: {JSON.stringify(joinState, null, 2)}</div>
                 <div className="border-t pt-2 mt-2">
                   <div className="font-semibold">Debug logs:</div>
                   {debugInfo.map((log, i) => (
@@ -164,7 +271,12 @@ const RoomContent = () => {
               <button
                 onClick={() => {
                   addDebugLog('Retry button clicked');
-                  setHasTriedJoin(false);
+                  setJoinState({
+                    hasAttempted: false,
+                    isProcessing: false,
+                    lastAttemptTime: 0,
+                    attemptId: null
+                  });
                   window.location.reload();
                 }}
                 className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition-colors mr-3"
@@ -248,17 +360,18 @@ const RoomContent = () => {
             </div>
           )}
 
-          {/* Enhanced Debug Panel with WebRTC info */}
+          {/* Enhanced Debug Panel with join state info */}
           {process.env.NODE_ENV === 'development' && (
             <div className="mt-3 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
               <details className="text-sm">
-                <summary className="font-semibold text-yellow-800 cursor-pointer">🐛 Debug Info (WebRTC Enhanced)</summary>
+                <summary className="font-semibold text-yellow-800 cursor-pointer">🐛 Debug Info (Enhanced)</summary>
                 <div className="mt-2 space-y-1 text-yellow-700 text-xs">
                   <div>Connected: {isConnected.toString()}</div>
                   <div>Current User: {currentUser}</div>
                   <div>User Role: {userRole}</div>
                   <div>Users Count: {users.length}</div>
                   <div>Room Loaded: {!!roomInfo}</div>
+                  <div>Join State: {JSON.stringify(joinState, null, 2)}</div>
                   <div>WebRTC Component: Loaded</div>
                   <div>Browser WebRTC Support: {typeof RTCPeerConnection !== 'undefined' ? 'Yes' : 'No'}</div>
                   <div className="max-h-20 overflow-y-auto">
@@ -271,39 +384,44 @@ const RoomContent = () => {
         </div>
       </div>
 
-      {/* Room Content Layout - UPDATED WITH WEBRTC AUDIO */}
+      {/* Room Content Layout - ENHANCED WITH ERROR BOUNDARIES */}
       <div className="container mx-auto p-4 pb-20">
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 room-content" style={{ height: 'calc(100vh - 320px)' }}>
           
-          {/* Left Sidebar - Chat and WebRTC Audio with Fixed Heights */}
+          {/* Left Sidebar - Chat and WebRTC Audio with Error Boundaries */}
           <div className="lg:col-span-1 room-sidebar">
             
-            {/* Chat Component - Uses chat-container class for fixed height */}
+            {/* Chat Component with Error Boundary */}
             <div className="chat-container">
-              <Chat />
+              <ErrorBoundary>
+                <Chat />
+              </ErrorBoundary>
             </div>
 
-            {/* WebRTC Audio Component - Uses audio-container class for fixed height */}
+            {/* WebRTC Audio Component with Error Boundary */}
             <div className="audio-container">
-              <WebRTCAudioComponent />
+              <ErrorBoundary>
+                <WebRTCAudioComponent />
+              </ErrorBoundary>
             </div>
             
           </div>
 
-          {/* Main Content - Code Editor */}
+          {/* Main Content - Code Editor with Error Boundary */}
           <div className="lg:col-span-3 h-full">
             <div className="h-full bg-white rounded-lg shadow-lg overflow-hidden">
-              <CollaborativeCodeEditor />
+              <ErrorBoundary>
+                <CollaborativeCodeEditor />
+              </ErrorBoundary>
             </div>
           </div>
           
         </div>
       </div>
 
-      {/* Enhanced Room Status Bar with WebRTC info */}
+      {/* Enhanced Room Status Bar */}
       <div id="room-status-bar" className="fixed bottom-0 left-0 right-0 bg-gray-800 text-white py-2 px-4 z-50 transition-transform duration-300">
         <div className="container mx-auto">
-          {/* Enhanced Status Bar */}
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <span className="flex items-center">
@@ -316,6 +434,9 @@ const RoomContent = () => {
               <span className="text-sm hidden md:inline">User: <span className="font-medium">{currentUser}</span></span>
               <span className="text-sm hidden lg:inline">Role: <span className="capitalize font-medium">{userRole}</span></span>
               <span className="text-sm hidden xl:inline">🎙️ WebRTC Voice</span>
+              {joinState.isProcessing && (
+                <span className="text-sm text-yellow-300">⏳ Joining...</span>
+              )}
             </div>
             
             <div className="flex items-center space-x-4">
@@ -369,7 +490,7 @@ const RoomContent = () => {
             </div>
           </div>
           
-          {/* Additional Status Info (visible when expanded) */}
+          {/* Additional Status Info */}
           <div className="mt-1 text-xs text-gray-300 flex items-center justify-between">
             <div className="flex items-center space-x-3">
               {roomInfo && (
@@ -378,6 +499,9 @@ const RoomContent = () => {
                   {roomInfo.isPrivate && <span>🔒 Private</span>}
                   <span>🎙️ P2P Voice Chat</span>
                 </>
+              )}
+              {joinState.attemptId && (
+                <span>🔍 Attempt: {joinState.attemptId.slice(-8)}</span>
               )}
             </div>
             <div className="flex items-center space-x-2 text-xs">
@@ -396,12 +520,14 @@ const RoomPage = () => {
   const { isAuthenticated } = useAuth();
   const router = useRouter();
 
-  // Redirect if not authenticated
+  // 🔧 FIX 5: Improved redirect handling with proper dependency
   useEffect(() => {
     if (!isAuthenticated) {
-      router.push(`/login?redirect=${encodeURIComponent(router.asPath)}`);
+      const redirectUrl = `/login?redirect=${encodeURIComponent(router.asPath)}`;
+      console.log('🔐 Redirecting to login:', redirectUrl);
+      router.push(redirectUrl);
     }
-  }, [isAuthenticated, router]);
+  }, [isAuthenticated, router.asPath, router]);
 
   if (!isAuthenticated) {
     return (

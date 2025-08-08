@@ -1,4 +1,4 @@
-// src/contexts/RoomContext.js
+// src/contexts/RoomContext.js 
 import React, { createContext, useContext, useReducer, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/contexts/AuthContext';
@@ -242,35 +242,44 @@ export const RoomProvider = ({ children }) => {
   const socketRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   
-  // 🆕 FIXED: Add initialization state tracking to prevent double joins
+  // 🔧 FIX 1: Enhanced initialization state tracking to prevent double joins
   const initializationRef = useRef({
     isInitializing: false,
     lastRoomId: null,
     lastPassword: null,
-    lastInitTime: 0
+    lastInitTime: 0,
+    joinAttemptId: null, // Unique identifier for join attempts
+    hasSuccessfullyJoined: false // Track successful joins
   });
 
-  // 🆕 ENHANCED: Cleanup function with initialization state reset
+  // 🔧 FIX 2: Enhanced cleanup function with better state reset
   const cleanup = useCallback(() => {
     console.log('🧹 [CLIENT] Cleaning up room connection');
     
-    // Clear initialization state
+    // Reset initialization state
     initializationRef.current = {
       isInitializing: false,
       lastRoomId: null,
       lastPassword: null,
-      lastInitTime: 0
+      lastInitTime: 0,
+      joinAttemptId: null,
+      hasSuccessfullyJoined: false
     };
     
     if (socketRef.current) {
-      socketRef.current.removeAllListeners();
-      if (socketRef.current.connected) {
-        socketRef.current.disconnect();
+      try {
+        socketRef.current.removeAllListeners();
+        if (socketRef.current.connected) {
+          socketRef.current.disconnect();
+        }
+      } catch (error) {
+        console.error('Error during socket cleanup:', error);
       }
     }
     
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
     }
     
     socketRef.current = null;
@@ -290,12 +299,23 @@ export const RoomProvider = ({ children }) => {
       console.log('🔌 [CLIENT] Connected to room server');
       dispatch({ type: ROOM_ACTIONS.CONNECTED, payload: { socket } });
       
-      // Auto-join room after connection
-      console.log('🚪 [CLIENT] Attempting to join room:', roomId);
-      socket.emit('joinRoom', {
-        roomId,
-        roomPassword
-      });
+      // 🔧 FIX 3: Add delay and verification before joining
+      const currentAttemptId = initializationRef.current.joinAttemptId;
+      
+      setTimeout(() => {
+        // Verify this is still the current attempt
+        if (initializationRef.current.joinAttemptId === currentAttemptId && 
+            !initializationRef.current.hasSuccessfullyJoined) {
+          
+          console.log('🚪 [CLIENT] Attempting to join room:', roomId);
+          socket.emit('joinRoom', {
+            roomId,
+            roomPassword
+          });
+        } else {
+          console.log('🚫 [CLIENT] Skipping join - attempt superseded or already joined');
+        }
+      }, 100); // Small delay to ensure socket is fully ready
     });
 
     socket.on('disconnect', (reason) => {
@@ -304,6 +324,7 @@ export const RoomProvider = ({ children }) => {
       
       // Reset initialization state on disconnect
       initializationRef.current.isInitializing = false;
+      initializationRef.current.hasSuccessfullyJoined = false;
     });
 
     socket.on('connect_error', (error) => {
@@ -315,11 +336,17 @@ export const RoomProvider = ({ children }) => {
       
       // Reset initialization state on error
       initializationRef.current.isInitializing = false;
+      initializationRef.current.hasSuccessfullyJoined = false;
     });
 
-    // Room events
+    // 🔧 FIX 4: Enhanced room events with better error handling
     socket.on('joinSuccess', (data) => {
       console.log('✅ [CLIENT] Successfully joined room:', data);
+      
+      // Mark as successfully joined
+      initializationRef.current.hasSuccessfullyJoined = true;
+      initializationRef.current.isInitializing = false;
+      
       dispatch({
         type: ROOM_ACTIONS.JOINED_ROOM,
         payload: {
@@ -337,13 +364,37 @@ export const RoomProvider = ({ children }) => {
           payload: { permissions: data.audioPermissions }
         });
       }
-      
-      // Mark initialization as complete
-      initializationRef.current.isInitializing = false;
     });
 
     socket.on('error', (errorData) => {
       console.error('❌ [CLIENT] Socket error received:', errorData);
+      
+      // Special handling for "already in room" error
+      if (errorData.message && errorData.message.includes('already in this room')) {
+        console.log('⚠️ [CLIENT] User already in room - cleaning up and retrying');
+        
+        // Mark as failed and cleanup
+        initializationRef.current.hasSuccessfullyJoined = false;
+        initializationRef.current.isInitializing = false;
+        
+        // Emit leave and retry after a delay
+        setTimeout(() => {
+          if (socket.connected) {
+            socket.emit('leaveRoom', { roomId });
+            
+            // Retry join after leaving
+            setTimeout(() => {
+              if (socket.connected && !initializationRef.current.hasSuccessfullyJoined) {
+                console.log('🔄 [CLIENT] Retrying join after leave');
+                socket.emit('joinRoom', { roomId, roomPassword });
+              }
+            }, 500);
+          }
+        }, 200);
+        
+        return; // Don't dispatch error for this case
+      }
+      
       dispatch({ 
         type: ROOM_ACTIONS.ERROR, 
         payload: { error: errorData.message || 'Failed to join room' } 
@@ -351,6 +402,7 @@ export const RoomProvider = ({ children }) => {
       
       // Reset initialization state on error
       initializationRef.current.isInitializing = false;
+      initializationRef.current.hasSuccessfullyJoined = false;
     });
 
     // User management events
@@ -474,37 +526,56 @@ export const RoomProvider = ({ children }) => {
 
   }, [state.typingUsers]);
 
-  // 🆕 ENHANCED: Join room function with deduplication and better error handling
+  // 🔧 FIX 5: Completely rewritten join room function with comprehensive deduplication
   const joinRoom = useCallback(async (roomId, roomPassword) => {
     const currentTime = Date.now();
     
+    // Create unique attempt identifier
+    const attemptId = `${roomId}-${roomPassword}-${currentTime}-${Math.random().toString(36).substr(2, 9)}`;
+    
     console.log('🎯 [CLIENT] Join room called:', { 
       roomId, 
+      attemptId,
       isAuthenticated, 
       user: !!user,
       isInitializing: initializationRef.current.isInitializing,
+      hasSuccessfullyJoined: initializationRef.current.hasSuccessfullyJoined,
       timeSinceLastInit: currentTime - initializationRef.current.lastInitTime
     });
 
-    // Prevent rapid successive calls (debounce with 1 second)
-    if (currentTime - initializationRef.current.lastInitTime < 1000) {
+    // 🔧 Enhanced deduplication checks
+    
+    // 1. Prevent rapid successive calls (debounce with 2 seconds)
+    if (currentTime - initializationRef.current.lastInitTime < 2000) {
       console.log('🚫 [CLIENT] Too soon since last initialization, skipping...');
       return false;
     }
 
-    // Prevent double initialization
+    // 2. Prevent double initialization
     if (initializationRef.current.isInitializing) {
       console.log('🚫 [CLIENT] Already initializing, skipping...');
       return false;
     }
 
-    // Check if we're trying to join the same room with same password and already connected
-    const { lastRoomId, lastPassword } = initializationRef.current;
-    if (lastRoomId === roomId && lastPassword === roomPassword && state.isConnected && state.roomInfo) {
-      console.log('🚫 [CLIENT] Already connected to this room, skipping...');
+    // 3. Check if already successfully joined this room
+    if (initializationRef.current.hasSuccessfullyJoined && 
+        initializationRef.current.lastRoomId === roomId) {
+      console.log('🚫 [CLIENT] Already successfully joined this room, skipping...');
       return true;
     }
 
+    // 4. Check if we're trying to join the same room with same password and already connected
+    const { lastRoomId, lastPassword } = initializationRef.current;
+    if (lastRoomId === roomId && 
+        lastPassword === roomPassword && 
+        state.isConnected && 
+        state.roomInfo &&
+        !state.error) {
+      console.log('🚫 [CLIENT] Already connected to this room with no errors, skipping...');
+      return true;
+    }
+
+    // 5. Basic validation
     if (!isAuthenticated || !user) {
       dispatch({ type: ROOM_ACTIONS.ERROR, payload: { error: 'Authentication required' } });
       return false;
@@ -515,12 +586,14 @@ export const RoomProvider = ({ children }) => {
       return false;
     }
 
-    // Set initialization state
+    // Set initialization state with unique attempt ID
     initializationRef.current = {
       isInitializing: true,
       lastRoomId: roomId,
       lastPassword: roomPassword,
-      lastInitTime: currentTime
+      lastInitTime: currentTime,
+      joinAttemptId: attemptId,
+      hasSuccessfullyJoined: false
     };
 
     dispatch({ type: ROOM_ACTIONS.CONNECTING });
@@ -534,28 +607,59 @@ export const RoomProvider = ({ children }) => {
         throw new Error('No authentication token found');
       }
 
-      console.log('🔐 [CLIENT] Creating socket connection with token');
+      console.log('🔐 [CLIENT] Creating socket connection with token for attempt:', attemptId);
 
       const socket = io('https://cotog-backend.onrender.com', {
         auth: { token },
         autoConnect: false,
         forceNew: true,
-        timeout: 10000,
+        timeout: 15000, // Increased timeout
         transports: ['websocket', 'polling']
       });
 
       socketRef.current = socket;
       setupSocketHandlers(socket, roomId, roomPassword);
-      socket.connect();
+      
+      // Connect with timeout handling
+      const connectPromise = new Promise((resolve, reject) => {
+        const connectTimeout = setTimeout(() => {
+          reject(new Error('Connection timeout after 15 seconds'));
+        }, 15000);
 
+        socket.once('connect', () => {
+          clearTimeout(connectTimeout);
+          resolve();
+        });
+
+        socket.once('connect_error', (error) => {
+          clearTimeout(connectTimeout);
+          reject(error);
+        });
+      });
+
+      socket.connect();
+      await connectPromise;
+
+      console.log('✅ [CLIENT] Socket connected successfully for attempt:', attemptId);
       return true;
+
     } catch (error) {
       console.error('❌ [CLIENT] Error joining room:', error);
       dispatch({ type: ROOM_ACTIONS.ERROR, payload: { error: error.message } });
-      initializationRef.current.isInitializing = false;
+      
+      // Reset initialization state on error
+      initializationRef.current = {
+        isInitializing: false,
+        lastRoomId: null,
+        lastPassword: null,
+        lastInitTime: 0,
+        joinAttemptId: null,
+        hasSuccessfullyJoined: false
+      };
+      
       return false;
     }
-  }, [isAuthenticated, user, cleanup, setupSocketHandlers, state.isConnected, state.roomInfo]);
+  }, [isAuthenticated, user, cleanup, setupSocketHandlers, state.isConnected, state.roomInfo, state.error]);
 
   // Leave room function
   const leaveRoom = useCallback(() => {

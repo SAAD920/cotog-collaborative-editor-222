@@ -1,4 +1,4 @@
-// src/pages/login.js - 
+// src/pages/login.js - FIXED VERSION (No href interpolation errors)
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
@@ -21,10 +21,19 @@ const LoginPage = () => {
   });
   const [validationErrors, setValidationErrors] = useState({});
 
-  // Redirect if already authenticated
+  // 🔧 FIXED: Redirect handling with proper URL validation
   useEffect(() => {
     if (isAuthenticated && !authLoading) {
-      const redirectTo = router.query.redirect || '/';
+      // ✅ FIXED: Validate redirect URL to prevent interpolation errors
+      let redirectTo = router.query.redirect || '/';
+      
+      // Check if redirect contains problematic patterns
+      if (typeof redirectTo === 'string' && redirectTo.includes('[roomId]')) {
+        console.warn('⚠️ Invalid redirect URL detected, redirecting to home:', redirectTo);
+        redirectTo = '/';
+      }
+      
+      console.log('🔄 Redirecting after login to:', redirectTo);
       router.push(redirectTo);
     }
   }, [isAuthenticated, authLoading, router]);
@@ -90,8 +99,16 @@ const LoginPage = () => {
       );
 
       if (result.success) {
-        // Redirect to intended page or dashboard
-        const redirectTo = router.query.redirect || '/';
+        // ✅ FIXED: Safe redirect handling
+        let redirectTo = router.query.redirect || '/';
+        
+        // Validate redirect URL to prevent interpolation errors
+        if (typeof redirectTo === 'string' && redirectTo.includes('[roomId]')) {
+          console.warn('⚠️ Invalid redirect URL detected, redirecting to home:', redirectTo);
+          redirectTo = '/';
+        }
+        
+        console.log('✅ Login successful, redirecting to:', redirectTo);
         router.push(redirectTo);
       } else {
         setFormState(prev => ({ 
@@ -124,7 +141,11 @@ const LoginPage = () => {
     try {
       const result = await login(email, 'password123', false);
       if (result.success) {
-        router.push('/');
+        // ✅ FIXED: Safe redirect for quick login
+        const redirectTo = router.query.redirect && !router.query.redirect.includes('[roomId]') 
+          ? router.query.redirect 
+          : '/';
+        router.push(redirectTo);
       } else {
         setFormState(prev => ({ ...prev, error: result.error || 'Login failed' }));
       }
