@@ -1,4 +1,4 @@
-// src/pages/room/[roomId].js - FIXED WITH OPTIMIZED useEffect AND NAVIGATION
+// src/pages/room/[roomId].js - FIXED VERSION WITH ENHANCED URL HANDLING
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import Navbar from '@/components/Navbar';
@@ -9,7 +9,7 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 import { useAuth, ProtectedRoute } from '@/contexts/AuthContext';
 import { RoomProvider, useRoom } from '@/contexts/RoomContext';
 
-// Room content component (uses RoomContext)
+// Room content component
 const RoomContent = () => {
   const router = useRouter();
   const { roomId } = router.query;
@@ -34,9 +34,18 @@ const RoomContent = () => {
     attemptId: null
   });
 
-  // 🔧 FIX 1: Memoize room credentials to prevent unnecessary re-renders
+  // 🔧 CRITICAL FIX: Enhanced room credentials with validation
   const roomCredentials = useMemo(() => {
-    if (!roomId || !router.query.roomPassword) return null;
+    // Validate roomId is not a template literal
+    if (!roomId || typeof roomId !== 'string' || roomId.includes('[') || roomId.includes(']')) {
+      console.warn('⚠️ Invalid roomId detected:', roomId);
+      return null;
+    }
+    
+    if (!router.query.roomPassword) {
+      console.warn('⚠️ Missing room password');
+      return null;
+    }
     
     return {
       roomId: String(roomId),
@@ -51,10 +60,16 @@ const RoomContent = () => {
     setDebugInfo(prev => [...prev.slice(-9), `${new Date().toLocaleTimeString()}: ${message}`]);
   }, []);
 
-  // 🔧 FIX 2: Memoized join function to prevent recreation
+  // 🔧 CRITICAL FIX: Enhanced join function with validation
   const handleJoinRoom = useCallback(async (credentials) => {
     const currentTime = Date.now();
     const attemptId = `${credentials.roomId}-${currentTime}-${Math.random().toString(36).substr(2, 5)}`;
+    
+    // Enhanced validation
+    if (!credentials || !credentials.roomId || !credentials.roomPassword) {
+      addDebugLog('Invalid credentials provided');
+      return false;
+    }
     
     // Prevent rapid successive calls
     if (currentTime - joinState.lastAttemptTime < 3000) {
@@ -74,7 +89,7 @@ const RoomContent = () => {
       return true;
     }
 
-    addDebugLog(`Starting join attempt: ${attemptId}`);
+    addDebugLog(`Starting enhanced join attempt: ${attemptId}`);
     
     setJoinState({
       hasAttempted: true,
@@ -85,47 +100,38 @@ const RoomContent = () => {
 
     try {
       const success = await joinRoom(credentials.roomId, credentials.roomPassword);
-      addDebugLog(`Join attempt ${attemptId} result: ${success}`);
+      addDebugLog(`Enhanced join attempt ${attemptId} result: ${success}`);
       
-      setJoinState(prev => ({
-        ...prev,
-        isProcessing: false
-      }));
-      
+      setJoinState(prev => ({ ...prev, isProcessing: false }));
       return success;
     } catch (error) {
-      addDebugLog(`Join attempt ${attemptId} failed: ${error.message}`);
-      
-      setJoinState(prev => ({
-        ...prev,
-        isProcessing: false
-      }));
-      
+      addDebugLog(`Enhanced join attempt ${attemptId} failed: ${error.message}`);
+      setJoinState(prev => ({ ...prev, isProcessing: false }));
       return false;
     }
   }, [joinRoom, joinState.lastAttemptTime, joinState.isProcessing, isConnected, roomInfo, error, addDebugLog]);
 
-  // 🔧 FIX 3: Optimized useEffect with proper dependencies and conditions
+  // 🔧 CRITICAL FIX: Enhanced useEffect with better dependency management
   useEffect(() => {
-    // Only proceed if we have all required data
+    // Only proceed if we have valid credentials and user
     if (!roomCredentials || !user) {
       addDebugLog(`Missing requirements - credentials: ${!!roomCredentials}, user: ${!!user}`);
       return;
     }
 
-    // Don't attempt if already processing or recently attempted
+    // Don't attempt if already processing
     if (joinState.isProcessing) {
       addDebugLog('Join already in progress, skipping');
       return;
     }
 
-    // Don't attempt if already successfully connected without errors
+    // Don't attempt if already successfully connected
     if (isConnected && roomInfo && !error && joinState.hasAttempted) {
       addDebugLog('Already connected successfully, skipping');
       return;
     }
 
-    // Don't attempt if we recently tried (debounce)
+    // Don't attempt if we recently tried (enhanced debounce)
     const timeSinceLastAttempt = Date.now() - joinState.lastAttemptTime;
     if (joinState.hasAttempted && timeSinceLastAttempt < 5000) {
       addDebugLog(`Recently attempted join ${timeSinceLastAttempt}ms ago, waiting...`);
@@ -133,12 +139,13 @@ const RoomContent = () => {
     }
 
     // Proceed with join attempt
-    addDebugLog(`Initiating join for room ${roomCredentials.roomId}`);
+    addDebugLog(`Initiating enhanced join for room ${roomCredentials.roomId}`);
     handleJoinRoom(roomCredentials);
 
   }, [
-    roomCredentials, 
-    user?.id, // Only depend on user ID to prevent unnecessary re-runs
+    roomCredentials?.roomId, // Only depend on roomId to prevent unnecessary re-runs
+    roomCredentials?.roomPassword, // Only depend on password
+    user?.id, // Only depend on user ID
     joinState.isProcessing,
     joinState.hasAttempted,
     joinState.lastAttemptTime,
@@ -149,7 +156,7 @@ const RoomContent = () => {
     addDebugLog
   ]);
 
-  // 🔧 FIX 4: Reset join state when leaving/unmounting
+  // Reset join state when leaving/unmounting
   useEffect(() => {
     return () => {
       setJoinState({
@@ -161,7 +168,7 @@ const RoomContent = () => {
     };
   }, []);
 
-  // Loading state with enhanced debug info
+  // 🔧 CRITICAL FIX: Enhanced loading state with better debugging
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-100">
@@ -169,16 +176,17 @@ const RoomContent = () => {
         <div className="min-h-screen flex items-center justify-center">
           <div className="text-center max-w-md">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-            <h2 className="text-xl font-semibold text-gray-700 mb-2">Joining Room</h2>
-            <p className="text-gray-600 mb-4">Connecting to collaborative workspace...</p>
+            <h2 className="text-xl font-semibold text-gray-700 mb-2">Connecting to Room</h2>
+            <p className="text-gray-600 mb-4">Setting up collaborative workspace...</p>
             
             {/* Enhanced Debug Information */}
             <div className="bg-gray-50 rounded-lg p-4 text-left">
-              <h3 className="text-sm font-semibold text-gray-700 mb-2">🐛 Debug Info:</h3>
+              <h3 className="text-sm font-semibold text-gray-700 mb-2">🔧 Connection Status:</h3>
               <div className="space-y-1 text-xs text-gray-600 max-h-32 overflow-y-auto">
-                <div>Room ID: {roomCredentials?.roomId || 'Not set'}</div>
+                <div>Room ID: {roomCredentials?.roomId || 'Invalid/Missing'}</div>
                 <div>User: {user?.username || 'Not authenticated'}</div>
                 <div>Password: {roomCredentials?.roomPassword ? 'Provided' : 'Missing'}</div>
+                <div>Credentials Valid: {roomCredentials ? 'Yes' : 'No'}</div>
                 <div>Has Attempted: {joinState.hasAttempted.toString()}</div>
                 <div>Is Processing: {joinState.isProcessing.toString()}</div>
                 <div>Is Connected: {isConnected.toString()}</div>
@@ -194,9 +202,10 @@ const RoomContent = () => {
             </div>
 
             <div className="mt-4 space-y-1 text-sm text-gray-500">
-              <p>🔌 Establishing connection...</p>
-              <p>💬 Initializing chat...</p>
-              <p>💻 Loading code editor...</p>
+              <p>🔌 Establishing secure connection...</p>
+              <p>🔐 Authenticating with server...</p>
+              <p>💬 Initializing chat system...</p>
+              <p>💻 Loading collaborative editor...</p>
               <p>🎙️ Setting up WebRTC voice chat...</p>
             </div>
 
@@ -238,7 +247,7 @@ const RoomContent = () => {
     );
   }
 
-  // Error state with enhanced debugging
+  // 🔧 CRITICAL FIX: Enhanced error state with detailed information
   if (error) {
     return (
       <div className="min-h-screen bg-gray-100">
@@ -251,10 +260,11 @@ const RoomContent = () => {
             
             {/* Enhanced Debug Information for Errors */}
             <div className="bg-red-50 rounded-lg p-4 text-left mb-6">
-              <h3 className="text-sm font-semibold text-red-700 mb-2">🐛 Error Debug:</h3>
+              <h3 className="text-sm font-semibold text-red-700 mb-2">🔧 Error Details:</h3>
               <div className="space-y-1 text-xs text-red-600">
-                <div>Room ID: {roomCredentials?.roomId}</div>
-                <div>User: {user?.username}</div>
+                <div>Room ID: {roomCredentials?.roomId || 'Invalid'}</div>
+                <div>Credentials Valid: {roomCredentials ? 'Yes' : 'No'}</div>
+                <div>User: {user?.username || 'Not authenticated'}</div>
                 <div>Auth Token: {localStorage.getItem('auth_token') ? 'Present' : 'Missing'}</div>
                 <div>Server URL: https://cotog-backend.onrender.com</div>
                 <div>Join State: {JSON.stringify(joinState, null, 2)}</div>
@@ -270,7 +280,7 @@ const RoomContent = () => {
             <div className="space-y-3">
               <button
                 onClick={() => {
-                  addDebugLog('Retry button clicked');
+                  addDebugLog('Error retry button clicked');
                   setJoinState({
                     hasAttempted: false,
                     isProcessing: false,
@@ -331,7 +341,7 @@ const RoomContent = () => {
                       <span>👥 {users.length}/{roomInfo.maxUsers} users</span>
                       <span>👤 Created by {roomInfo.createdBy}</span>
                       {roomInfo.isPrivate && <span>🔒 Private</span>}
-                      <span>🎙️ WebRTC Voice Chat</span>
+                      <span>🎙️ Enhanced WebRTC Voice</span>
                     </>
                   )}
                 </div>
@@ -360,11 +370,11 @@ const RoomContent = () => {
             </div>
           )}
 
-          {/* Enhanced Debug Panel with join state info */}
+          {/* Enhanced Debug Panel */}
           {process.env.NODE_ENV === 'development' && (
             <div className="mt-3 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
               <details className="text-sm">
-                <summary className="font-semibold text-yellow-800 cursor-pointer">🐛 Debug Info (Enhanced)</summary>
+                <summary className="font-semibold text-yellow-800 cursor-pointer">🔧 Enhanced Debug Info</summary>
                 <div className="mt-2 space-y-1 text-yellow-700 text-xs">
                   <div>Connected: {isConnected.toString()}</div>
                   <div>Current User: {currentUser}</div>
@@ -372,7 +382,9 @@ const RoomContent = () => {
                   <div>Users Count: {users.length}</div>
                   <div>Room Loaded: {!!roomInfo}</div>
                   <div>Join State: {JSON.stringify(joinState, null, 2)}</div>
-                  <div>WebRTC Component: Loaded</div>
+                  <div>Credentials Valid: {!!roomCredentials}</div>
+                  <div>Room ID Valid: {roomCredentials?.roomId && !roomCredentials.roomId.includes('[')}</div>
+                  <div>WebRTC Component: Enhanced v2.0</div>
                   <div>Browser WebRTC Support: {typeof RTCPeerConnection !== 'undefined' ? 'Yes' : 'No'}</div>
                   <div className="max-h-20 overflow-y-auto">
                     Recent logs: {debugInfo.slice(-3).join(' | ')}
@@ -384,11 +396,11 @@ const RoomContent = () => {
         </div>
       </div>
 
-      {/* Room Content Layout - ENHANCED WITH ERROR BOUNDARIES */}
+      {/* Room Content Layout with Error Boundaries */}
       <div className="container mx-auto p-4 pb-20">
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 room-content" style={{ height: 'calc(100vh - 320px)' }}>
           
-          {/* Left Sidebar - Chat and WebRTC Audio with Error Boundaries */}
+          {/* Left Sidebar - Chat and WebRTC Audio */}
           <div className="lg:col-span-1 room-sidebar">
             
             {/* Chat Component with Error Boundary */}
@@ -407,7 +419,7 @@ const RoomContent = () => {
             
           </div>
 
-          {/* Main Content - Code Editor with Error Boundary */}
+          {/* Main Content - Code Editor */}
           <div className="lg:col-span-3 h-full">
             <div className="h-full bg-white rounded-lg shadow-lg overflow-hidden">
               <ErrorBoundary>
@@ -420,7 +432,7 @@ const RoomContent = () => {
       </div>
 
       {/* Enhanced Room Status Bar */}
-      <div id="room-status-bar" className="fixed bottom-0 left-0 right-0 bg-gray-800 text-white py-2 px-4 z-50 transition-transform duration-300">
+      <div id="room-status-bar" className="fixed bottom-0 left-0 right-0 bg-gray-800 text-white py-2 px-4 z-50">
         <div className="container mx-auto">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-4">
@@ -433,9 +445,9 @@ const RoomContent = () => {
               <span className="text-sm">Room: <code className="bg-gray-700 px-1 rounded">{roomId}</code></span>
               <span className="text-sm hidden md:inline">User: <span className="font-medium">{currentUser}</span></span>
               <span className="text-sm hidden lg:inline">Role: <span className="capitalize font-medium">{userRole}</span></span>
-              <span className="text-sm hidden xl:inline">🎙️ WebRTC Voice</span>
+              <span className="text-sm hidden xl:inline">🎙️ Enhanced WebRTC</span>
               {joinState.isProcessing && (
-                <span className="text-sm text-yellow-300">⏳ Joining...</span>
+                <span className="text-sm text-yellow-300">⏳ Connecting...</span>
               )}
             </div>
             
@@ -447,38 +459,14 @@ const RoomContent = () => {
                 </span>
               )}
               
-              {/* Status Bar Controls */}
+              {/* Status Indicators */}
               <div className="flex items-center space-x-2">
-                {/* Connection Indicator */}
                 <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`} 
                      title={isConnected ? 'Connected to room' : 'Disconnected from room'}>
                 </div>
-                
-                {/* WebRTC Indicator */}
                 <div className={`w-3 h-3 rounded-full ${typeof RTCPeerConnection !== 'undefined' ? 'bg-blue-400' : 'bg-gray-400'}`} 
                      title={typeof RTCPeerConnection !== 'undefined' ? 'WebRTC supported' : 'WebRTC not supported'}>
                 </div>
-                
-                {/* Minimize Button */}
-                <button 
-                  onClick={() => {
-                    const statusBar = document.getElementById('room-status-bar');
-                    const isMinimized = statusBar.classList.contains('minimized');
-                    if (isMinimized) {
-                      statusBar.classList.remove('minimized');
-                      statusBar.style.transform = 'translateY(0)';
-                    } else {
-                      statusBar.classList.add('minimized');
-                      statusBar.style.transform = 'translateY(calc(100% - 8px))';
-                    }
-                  }}
-                  className="text-xs hover:bg-gray-700 px-2 py-1 rounded transition-colors"
-                  title="Minimize/Maximize status bar"
-                >
-                  ⬇️
-                </button>
-                
-                {/* Quick Leave Button */}
                 <button
                   onClick={leaveRoom}
                   className="text-xs hover:bg-red-600 bg-red-700 px-2 py-1 rounded transition-colors"
@@ -497,7 +485,7 @@ const RoomContent = () => {
                 <>
                   <span>📝 {roomInfo.roomName}</span>
                   {roomInfo.isPrivate && <span>🔒 Private</span>}
-                  <span>🎙️ P2P Voice Chat</span>
+                  <span>🎙️ Enhanced WebRTC v2.0</span>
                 </>
               )}
               {joinState.attemptId && (
@@ -520,11 +508,22 @@ const RoomPage = () => {
   const { isAuthenticated } = useAuth();
   const router = useRouter();
 
-  // 🔧 FIX 5: Improved redirect handling with proper dependency
+  // 🔧 CRITICAL FIX: Enhanced redirect handling with URL validation
   useEffect(() => {
     if (!isAuthenticated) {
-      const redirectUrl = `/login?redirect=${encodeURIComponent(router.asPath)}`;
-      console.log('🔐 Redirecting to login:', redirectUrl);
+      // Validate current URL to prevent [roomId] interpolation
+      const currentPath = router.asPath;
+      
+      // Check for template literal in URL
+      if (currentPath.includes('[roomId]')) {
+        console.warn('⚠️ Template literal detected in URL, redirecting to login without redirect');
+        router.push('/login');
+        return;
+      }
+      
+      // Safe redirect with validated URL
+      const redirectUrl = `/login?redirect=${encodeURIComponent(currentPath)}`;
+      console.log('🔐 Enhanced redirect to login:', redirectUrl);
       router.push(redirectUrl);
     }
   }, [isAuthenticated, router.asPath, router]);
@@ -534,7 +533,7 @@ const RoomPage = () => {
       <div className="min-h-screen flex items-center justify-center bg-gray-100">
         <div className="text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto mb-4"></div>
-          <p className="text-gray-600">Redirecting to login...</p>
+          <p className="text-gray-600">Authenticating...</p>
         </div>
       </div>
     );
