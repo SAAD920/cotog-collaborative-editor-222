@@ -1,4 +1,4 @@
-// src/components/WebRTCAudioComponent.js - FIXED WITH COMPREHENSIVE ERROR HANDLING
+// src/components/WebRTCAudioComponent.js - NO PERMISSIONS REQUIRED VERSION
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Peer from 'simple-peer';
 import { useRoom } from '@/contexts/RoomContext';
@@ -18,7 +18,7 @@ const WebRTCAudioComponent = () => {
 
   const { getSocket, isConnected: roomConnected, currentUser, roomId } = useRoom();
 
-  // 🔧 FIX 1: Enhanced createAudioElement with error handling
+  // Enhanced createAudioElement with error handling
   const createAudioElement = useCallback((remoteStream, userId) => {
     try {
       if (!mountedRef.current || !remoteStream) {
@@ -45,7 +45,6 @@ const WebRTCAudioComponent = () => {
           console.log(`✅ Audio playing for user: ${userId}`);
         } catch (error) {
           console.log(`⚠️ Autoplay blocked for user ${userId}, user interaction needed:`, error.message);
-          // Store for later manual play
           audio.dataset.needsPlay = 'true';
         }
       };
@@ -59,7 +58,7 @@ const WebRTCAudioComponent = () => {
     }
   }, []);
 
-  // 🔧 FIX 2: Enhanced createPeer with comprehensive error handling
+  // Enhanced createPeer with comprehensive error handling
   const createPeer = useCallback((userToCall, callerID, stream) => {
     try {
       if (!stream) {
@@ -180,10 +179,10 @@ const WebRTCAudioComponent = () => {
     }
   }, [getSocket, roomId, createAudioElement]);
 
-  // 🔧 FIX 3: Enhanced addPeer with null checking and error handling
+  // Enhanced addPeer with null checking and error handling
   const addPeer = useCallback((incomingSignal, callerID, stream) => {
     try {
-      // ✅ CRITICAL FIX: Validate inputs before proceeding
+      // Validate inputs before proceeding
       if (!incomingSignal) {
         console.error('❌ Invalid incoming signal - signal is null/undefined');
         return null;
@@ -301,7 +300,7 @@ const WebRTCAudioComponent = () => {
         }
       });
 
-      // ✅ CRITICAL FIX: Validate peer and signal before calling signal()
+      // Validate peer and signal before calling signal()
       if (peer && typeof peer.signal === 'function' && incomingSignal) {
         try {
           peer.signal(incomingSignal);
@@ -342,10 +341,10 @@ const WebRTCAudioComponent = () => {
     }
   }, [getSocket, roomId, createAudioElement]);
 
-  // 🔧 FIX 4: Enhanced toggleAudio with better error handling
+  // Enhanced toggleAudio - NO PERMISSION SYSTEM
   const toggleAudio = useCallback(async () => {
     if (!isAudioOn) {
-      // Turn audio ON
+      // Turn audio ON - NO PERMISSIONS REQUIRED
       setIsConnecting(true);
       setConnectionError(null);
       
@@ -367,7 +366,7 @@ const WebRTCAudioComponent = () => {
         setIsAudioOn(true);
         setIsConnecting(false);
 
-        // Join voice room
+        // Join voice room IMMEDIATELY - NO PERMISSIONS NEEDED
         const socket = getSocket();
         if (socket && socket.connected) {
           socket.emit('join-voice-room', {
@@ -375,7 +374,7 @@ const WebRTCAudioComponent = () => {
             userId: currentUser,
             username: currentUser
           });
-          console.log('🎙️ Joined voice room successfully');
+          console.log('🎙️ Joined voice room immediately - NO PERMISSIONS REQUIRED');
         } else {
           throw new Error('Socket not connected');
         }
@@ -444,7 +443,7 @@ const WebRTCAudioComponent = () => {
     }
   }, [isAudioOn, getSocket, roomId, currentUser]);
 
-  // 🔧 FIX 5: Enhanced toggleMute with error handling
+  // Enhanced toggleMute with error handling
   const toggleMute = useCallback(() => {
     try {
       if (streamRef.current) {
@@ -460,7 +459,7 @@ const WebRTCAudioComponent = () => {
     }
   }, [isMuted]);
 
-  // Socket event handlers with enhanced error handling
+  // Socket event handlers - NO PERMISSION SYSTEM
   useEffect(() => {
     const socket = getSocket();
     if (!socket || !isAudioOn) return;
@@ -468,7 +467,7 @@ const WebRTCAudioComponent = () => {
     const handleUserJoinedVoice = ({ userId, username }) => {
       try {
         if (userId !== currentUser && streamRef.current && mountedRef.current) {
-          console.log(`👤 User ${username} joined voice chat`);
+          console.log(`👤 User ${username} joined voice chat - connecting immediately`);
           const peer = createPeer(userId, currentUser, streamRef.current);
           if (peer) {
             peersRef.current[userId] = peer;
@@ -483,7 +482,7 @@ const WebRTCAudioComponent = () => {
     const handleUserCalling = ({ signal, from, username }) => {
       try {
         if (from !== currentUser && streamRef.current && mountedRef.current) {
-          console.log(`📞 Incoming call from ${username}`);
+          console.log(`📞 Incoming call from ${username} - accepting immediately`);
           const peer = addPeer(signal, from, streamRef.current);
           if (peer) {
             peersRef.current[from] = peer;
@@ -549,6 +548,7 @@ const WebRTCAudioComponent = () => {
             if (voiceUser.userId !== currentUser && !peersRef.current[voiceUser.userId]) {
               setTimeout(() => {
                 if (streamRef.current && mountedRef.current) {
+                  console.log(`🔗 Connecting to existing voice user: ${voiceUser.username}`);
                   const peer = createPeer(voiceUser.userId, currentUser, streamRef.current);
                   if (peer) {
                     peersRef.current[voiceUser.userId] = peer;
@@ -634,8 +634,18 @@ const WebRTCAudioComponent = () => {
         </div>
       )}
 
+      {/* NO PERMISSIONS MESSAGE */}
+      <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-md text-xs">
+        <div className="flex items-center">
+          <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+          </svg>
+          <span>🎙️ Audio permissions disabled - Click to join voice chat instantly!</span>
+        </div>
+      </div>
+
       <div className="flex items-center space-x-2">
-        {/* Main Audio Toggle Button */}
+        {/* Main Audio Toggle Button - NO PERMISSIONS */}
         <button
           onClick={toggleAudio}
           disabled={isConnecting}
@@ -643,8 +653,8 @@ const WebRTCAudioComponent = () => {
             isConnecting
               ? 'bg-gray-400 cursor-not-allowed text-white'
               : !isAudioOn
-              ? 'bg-blue-600 hover:bg-blue-700 text-white'
-              : 'bg-green-600 hover:bg-green-700 text-white'
+              ? 'bg-green-600 hover:bg-green-700 text-white'
+              : 'bg-blue-600 hover:bg-blue-700 text-white'
           }`}
         >
           {isConnecting ? (
@@ -657,14 +667,14 @@ const WebRTCAudioComponent = () => {
               <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
               </svg>
-              <span>Turn On Audio</span>
+              <span>Join Voice Chat</span>
             </>
           ) : (
             <>
               <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
               </svg>
-              <span>Audio On ({connectedUsers.length + 1})</span>
+              <span>In Voice ({connectedUsers.length + 1})</span>
             </>
           )}
         </button>
@@ -691,7 +701,7 @@ const WebRTCAudioComponent = () => {
                 <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM14.657 2.929a1 1 0 011.414 0A9.972 9.972 0 0119 10a9.972 9.972 0 01-2.929 7.071 1 1 0 01-1.414-1.414A7.971 7.971 0 0017 10c0-2.21-.894-4.208-2.343-5.657a1 1 0 010-1.414zm-2.829 2.828a1 1 0 011.415 0A5.983 5.983 0 0115 10a5.984 5.984 0 01-1.757 4.243 1 1 0 01-1.415-1.415A3.984 3.984 0 0013 10a3.983 3.983 0 00-1.172-2.828 1 1 0 010-1.415z" clipRule="evenodd" />
                 </svg>
-                <span>Mute</span>
+                <span>Mic On</span>
               </>
             )}
           </button>
@@ -703,6 +713,10 @@ const WebRTCAudioComponent = () => {
         <div className="text-xs text-gray-600">
           <p className="font-medium">In voice chat:</p>
           <ul className="mt-1 space-y-1">
+            <li className="flex items-center text-green-600">
+              <div className="w-2 h-2 bg-green-400 rounded-full mr-2"></div>
+              You (speaking)
+            </li>
             {connectedUsers.map(user => (
               <li key={user.id} className="flex items-center">
                 <div className="w-2 h-2 bg-green-400 rounded-full mr-2"></div>
@@ -710,6 +724,36 @@ const WebRTCAudioComponent = () => {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+
+      {/* Enhanced Status Messages */}
+      {!isAudioOn && (
+        <div className="text-xs text-gray-500 text-center">
+          <p>🎙️ Click "Join Voice Chat" to start talking with your team</p>
+          <p className="text-green-600 font-medium">✅ No permissions required - instant access!</p>
+        </div>
+      )}
+
+      {isAudioOn && connectedUsers.length === 0 && (
+        <div className="text-xs text-gray-500 text-center">
+          <p>🎙️ You're in voice chat</p>
+          <p>Waiting for others to join...</p>
+        </div>
+      )}
+
+      {/* Audio Quality Indicator */}
+      {isAudioOn && (
+        <div className="text-xs text-center">
+          <div className="flex items-center justify-center space-x-1">
+            <div className={`w-1 h-3 rounded-full ${isMuted ? 'bg-red-400' : 'bg-green-400'} animate-pulse`}></div>
+            <div className={`w-1 h-2 rounded-full ${isMuted ? 'bg-red-300' : 'bg-green-300'} animate-pulse`} style={{animationDelay: '0.1s'}}></div>
+            <div className={`w-1 h-4 rounded-full ${isMuted ? 'bg-red-400' : 'bg-green-400'} animate-pulse`} style={{animationDelay: '0.2s'}}></div>
+            <div className={`w-1 h-2 rounded-full ${isMuted ? 'bg-red-300' : 'bg-green-300'} animate-pulse`} style={{animationDelay: '0.3s'}}></div>
+            <span className="ml-2 text-gray-600">
+              {isMuted ? 'Microphone muted' : 'Audio active'}
+            </span>
+          </div>
         </div>
       )}
     </div>

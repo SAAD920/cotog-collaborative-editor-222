@@ -1,4 +1,4 @@
-// src/contexts/RoomContext.js - FIXED VERSION WITH ENHANCED DEDUPLICATION
+// src/contexts/RoomContext.js - AUDIO PERMISSIONS COMPLETELY REMOVED
 import React, { createContext, useContext, useReducer, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/contexts/AuthContext';
@@ -21,15 +21,11 @@ const ROOM_ACTIONS = {
   LANGUAGE_UPDATE: 'LANGUAGE_UPDATE',
   TYPING_UPDATE: 'TYPING_UPDATE',
   AUDIO_UPDATE: 'AUDIO_UPDATE',
-  AUDIO_PERMISSION_REQUEST: 'AUDIO_PERMISSION_REQUEST',
-  AUDIO_PERMISSION_RESPONSE: 'AUDIO_PERMISSION_RESPONSE',
-  AUDIO_PERMISSIONS_UPDATE: 'AUDIO_PERMISSIONS_UPDATE',
   SPEAKING_USERS_UPDATE: 'SPEAKING_USERS_UPDATE',
-  REMOVE_PERMISSION_REQUEST: 'REMOVE_PERMISSION_REQUEST',
   RESET_ROOM: 'RESET_ROOM'
 };
 
-// Initial room state
+// Initial room state - AUDIO PERMISSIONS REMOVED
 const initialState = {
   socket: null,
   isConnected: false,
@@ -49,8 +45,6 @@ const initialState = {
   audioUsers: [],
   isMuted: true,
   speakingUsers: [],
-  audioPermissions: {},
-  pendingAudioRequests: [],
   activeTab: 'chat'
 };
 
@@ -119,36 +113,8 @@ const roomReducer = (state, action) => {
         isMuted: action.payload.muted !== undefined ? action.payload.muted : state.isMuted
       };
 
-    case ROOM_ACTIONS.AUDIO_PERMISSION_REQUEST:
-      const existingRequest = state.pendingAudioRequests.find(req => req.username === action.payload.username);
-      if (existingRequest) return state;
-      
-      return {
-        ...state,
-        pendingAudioRequests: [
-          ...state.pendingAudioRequests,
-          { username: action.payload.username, timestamp: action.payload.timestamp }
-        ]
-      };
-
-    case ROOM_ACTIONS.AUDIO_PERMISSION_RESPONSE:
-      return {
-        ...state,
-        pendingAudioRequests: state.pendingAudioRequests.filter(req => req.username !== action.payload.username),
-        audioPermissions: { ...state.audioPermissions, [action.payload.username]: action.payload.granted }
-      };
-
-    case ROOM_ACTIONS.AUDIO_PERMISSIONS_UPDATE:
-      return { ...state, audioPermissions: action.payload.permissions };
-
     case ROOM_ACTIONS.SPEAKING_USERS_UPDATE:
       return { ...state, speakingUsers: action.payload.speakingUsers };
-
-    case ROOM_ACTIONS.REMOVE_PERMISSION_REQUEST:
-      return {
-        ...state,
-        pendingAudioRequests: state.pendingAudioRequests.filter(req => req.username !== action.payload.username)
-      };
 
     case ROOM_ACTIONS.RESET_ROOM:
       return { ...initialState, socket: null, isLoading: false };
@@ -165,7 +131,7 @@ export const RoomProvider = ({ children }) => {
   const socketRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   
-  // 🔧 CRITICAL FIX: Enhanced connection state management
+  // Enhanced connection state management
   const connectionStateRef = useRef({
     isConnecting: false,
     lastConnectAttempt: 0,
@@ -179,14 +145,12 @@ export const RoomProvider = ({ children }) => {
     isCleaningUp: false
   });
 
-  // 🔧 CRITICAL FIX: Enhanced cleanup with connection state reset
+  // Enhanced cleanup with connection state reset
   const cleanup = useCallback(() => {
     console.log('🧹 [CLIENT] Enhanced cleanup initiated');
     
-    // Set cleanup flag to prevent new connections
     connectionStateRef.current.isCleaningUp = true;
     
-    // Clear all timeouts
     if (connectionStateRef.current.connectionTimeout) {
       clearTimeout(connectionStateRef.current.connectionTimeout);
       connectionStateRef.current.connectionTimeout = null;
@@ -197,7 +161,6 @@ export const RoomProvider = ({ children }) => {
       reconnectTimeoutRef.current = null;
     }
     
-    // Clean up socket
     if (socketRef.current) {
       try {
         socketRef.current.removeAllListeners();
@@ -210,7 +173,6 @@ export const RoomProvider = ({ children }) => {
       socketRef.current = null;
     }
     
-    // Reset connection state
     connectionStateRef.current = {
       isConnecting: false,
       lastConnectAttempt: 0,
@@ -228,7 +190,7 @@ export const RoomProvider = ({ children }) => {
     console.log('✅ [CLIENT] Enhanced cleanup completed');
   }, []);
 
-  // 🔧 CRITICAL FIX: Enhanced socket setup with better error handling
+  // Enhanced socket setup with better error handling
   const setupSocketHandlers = useCallback((socket, roomId, roomPassword) => {
     console.log('🔧 [CLIENT] Setting up enhanced socket handlers');
 
@@ -239,13 +201,11 @@ export const RoomProvider = ({ children }) => {
       console.log('🔌 [CLIENT] Socket connected successfully');
       dispatch({ type: ROOM_ACTIONS.CONNECTED, payload: { socket } });
       
-      // Clear connection timeout
       if (connectionStateRef.current.connectionTimeout) {
         clearTimeout(connectionStateRef.current.connectionTimeout);
         connectionStateRef.current.connectionTimeout = null;
       }
       
-      // Join room with delay and validation
       const currentAttemptId = connectionStateRef.current.connectAttemptId;
       
       setTimeout(() => {
@@ -263,11 +223,9 @@ export const RoomProvider = ({ children }) => {
       console.log(`🔌 [CLIENT] Socket disconnected: ${reason}`);
       dispatch({ type: ROOM_ACTIONS.DISCONNECTED });
       
-      // Reset connection state
       connectionStateRef.current.isConnecting = false;
       connectionStateRef.current.hasSuccessfulConnection = false;
       
-      // Auto-reconnect logic with limits
       if (reason !== 'io client disconnect' && 
           connectionStateRef.current.reconnectCount < connectionStateRef.current.maxReconnectAttempts &&
           !connectionStateRef.current.isCleaningUp) {
@@ -289,19 +247,17 @@ export const RoomProvider = ({ children }) => {
       console.error('❌ [CLIENT] Connection error:', error);
       dispatch({ type: ROOM_ACTIONS.ERROR, payload: { error: `Connection failed: ${error.message}` } });
       
-      // Reset connection state
       connectionStateRef.current.isConnecting = false;
       connectionStateRef.current.hasSuccessfulConnection = false;
     });
 
-    // 🔧 CRITICAL FIX: Enhanced room join handling
+    // Enhanced room join handling
     socket.on('joinSuccess', (data) => {
       console.log('✅ [CLIENT] Room join successful:', data);
       
-      // Mark successful connection
       connectionStateRef.current.hasSuccessfulConnection = true;
       connectionStateRef.current.isConnecting = false;
-      connectionStateRef.current.reconnectCount = 0; // Reset reconnect counter
+      connectionStateRef.current.reconnectCount = 0;
       
       dispatch({
         type: ROOM_ACTIONS.JOINED_ROOM,
@@ -312,20 +268,12 @@ export const RoomProvider = ({ children }) => {
           userRole: data.userRole
         }
       });
-      
-      if (data.audioPermissions) {
-        dispatch({
-          type: ROOM_ACTIONS.AUDIO_PERMISSIONS_UPDATE,
-          payload: { permissions: data.audioPermissions }
-        });
-      }
     });
 
-    // 🔧 CRITICAL FIX: Enhanced error handling with retry logic
+    // Enhanced error handling with retry logic
     socket.on('error', (errorData) => {
       console.error('❌ [CLIENT] Socket error:', errorData);
       
-      // Handle "already in room" error specially
       if (errorData.message && errorData.message.includes('already in this room')) {
         console.log('⚠️ [CLIENT] Already in room - attempting recovery');
         
@@ -345,7 +293,6 @@ export const RoomProvider = ({ children }) => {
         return;
       }
       
-      // Handle other errors
       dispatch({ type: ROOM_ACTIONS.ERROR, payload: { error: errorData.message || 'Failed to join room' } });
       connectionStateRef.current.isConnecting = false;
       connectionStateRef.current.hasSuccessfulConnection = false;
@@ -399,28 +346,7 @@ export const RoomProvider = ({ children }) => {
       });
     });
 
-    // Audio permission events
-    socket.on('audioPermissionRequest', (data) => {
-      dispatch({
-        type: ROOM_ACTIONS.AUDIO_PERMISSION_REQUEST,
-        payload: { username: data.username, timestamp: data.timestamp }
-      });
-    });
-
-    socket.on('audioPermissionResponse', (data) => {
-      dispatch({
-        type: ROOM_ACTIONS.AUDIO_PERMISSION_RESPONSE,
-        payload: { username: data.username, granted: data.granted }
-      });
-    });
-
-    socket.on('audioPermissionsUpdate', (data) => {
-      dispatch({
-        type: ROOM_ACTIONS.AUDIO_PERMISSIONS_UPDATE,
-        payload: { permissions: data.permissions }
-      });
-    });
-
+    // Audio events - NO PERMISSION SYSTEM
     socket.on('audioUsersUpdate', (data) => {
       dispatch({
         type: ROOM_ACTIONS.AUDIO_UPDATE,
@@ -451,7 +377,7 @@ export const RoomProvider = ({ children }) => {
 
   }, [state.typingUsers]);
 
-  // 🔧 CRITICAL FIX: Completely rewritten join function with advanced deduplication
+  // Completely rewritten join function with advanced deduplication
   const joinRoom = useCallback(async (roomId, roomPassword) => {
     const currentTime = Date.now();
     const attemptId = `${roomId}-${currentTime}-${Math.random().toString(36).substr(2, 9)}`;
@@ -464,34 +390,28 @@ export const RoomProvider = ({ children }) => {
       connectionState: connectionStateRef.current
     });
 
-    // 🔧 ENHANCED DEDUPLICATION CHECKS
-    
-    // 1. Check if cleanup is in progress
+    // Enhanced deduplication checks
     if (connectionStateRef.current.isCleaningUp) {
       console.log('🚫 [CLIENT] Cleanup in progress, skipping join');
       return false;
     }
 
-    // 2. Prevent rapid successive calls
     if (currentTime - connectionStateRef.current.lastConnectAttempt < 3000) {
       console.log('🚫 [CLIENT] Too soon since last attempt, skipping');
       return false;
     }
 
-    // 3. Prevent double connection attempts
     if (connectionStateRef.current.isConnecting) {
       console.log('🚫 [CLIENT] Already connecting, skipping');
       return false;
     }
 
-    // 4. Check if already successfully connected
     if (connectionStateRef.current.hasSuccessfulConnection && 
         connectionStateRef.current.lastRoomId === roomId) {
       console.log('🚫 [CLIENT] Already connected to this room');
       return true;
     }
 
-    // 5. Validate requirements
     if (!isAuthenticated || !user) {
       dispatch({ type: ROOM_ACTIONS.ERROR, payload: { error: 'Authentication required' } });
       return false;
@@ -512,7 +432,6 @@ export const RoomProvider = ({ children }) => {
     dispatch({ type: ROOM_ACTIONS.CONNECTING });
     
     try {
-      // Clean up existing connection
       cleanup();
 
       const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
@@ -526,15 +445,14 @@ export const RoomProvider = ({ children }) => {
         auth: { token },
         autoConnect: false,
         forceNew: true,
-        timeout: 20000, // Increased timeout
+        timeout: 20000,
         transports: ['websocket', 'polling'],
-        reconnection: false // Disable auto-reconnection, we handle it manually
+        reconnection: false
       });
 
       socketRef.current = socket;
       setupSocketHandlers(socket, roomId, roomPassword);
       
-      // Set connection timeout
       connectionStateRef.current.connectionTimeout = setTimeout(() => {
         if (connectionStateRef.current.isConnecting && 
             !connectionStateRef.current.hasSuccessfulConnection) {
@@ -544,7 +462,6 @@ export const RoomProvider = ({ children }) => {
         }
       }, 20000);
 
-      // Connect with promise handling
       const connectPromise = new Promise((resolve, reject) => {
         const connectTimeout = setTimeout(() => {
           reject(new Error('Connection timeout after 20 seconds'));
@@ -571,7 +488,6 @@ export const RoomProvider = ({ children }) => {
       console.error('❌ [CLIENT] Enhanced join error:', error);
       dispatch({ type: ROOM_ACTIONS.ERROR, payload: { error: error.message } });
       
-      // Reset connection state
       connectionStateRef.current.isConnecting = false;
       connectionStateRef.current.hasSuccessfulConnection = false;
       
@@ -641,33 +557,7 @@ export const RoomProvider = ({ children }) => {
     }
   }, [state.isConnected, state.roomId, state.userRole, state.code, user]);
 
-  // Audio permission functions
-  const sendAudioPermissionRequest = useCallback(() => {
-    if (socketRef.current && state.isConnected && state.roomId && user) {
-      socketRef.current.emit('audioPermissionRequest', {
-        roomId: state.roomId,
-        username: user.username
-      });
-    }
-  }, [state.isConnected, state.roomId, user]);
-
-  const sendAudioPermissionResponse = useCallback((username, granted) => {
-    if (socketRef.current && state.isConnected && state.roomId && 
-        (state.userRole === 'owner' || state.userRole === 'moderator')) {
-      socketRef.current.emit('audioPermissionResponse', {
-        roomId: state.roomId,
-        username,
-        granted
-      });
-      
-      dispatch({
-        type: ROOM_ACTIONS.REMOVE_PERMISSION_REQUEST,
-        payload: { username }
-      });
-    }
-  }, [state.isConnected, state.roomId, state.userRole]);
-
-  // Audio functions
+  // Audio functions - NO PERMISSION SYSTEM
   const toggleAudio = useCallback(() => {
     const newConnectedState = !state.audioConnected;
     
@@ -731,8 +621,6 @@ export const RoomProvider = ({ children }) => {
     toggleAudio,
     toggleMute,
     updateSpeakingStatus,
-    sendAudioPermissionRequest,
-    sendAudioPermissionResponse,
     isRoomOwner: () => state.userRole === 'owner',
     isRoomModerator: () => ['owner', 'moderator'].includes(state.userRole),
     getSocket: () => socketRef.current
