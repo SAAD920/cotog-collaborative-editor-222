@@ -1,4 +1,4 @@
-// src/contexts/RoomContext.js - AUDIO PERMISSIONS COMPLETELY REMOVED
+// src/contexts/RoomContext.js - CLEANED VERSION WITH UNUSED CODE REMOVED
 import React, { createContext, useContext, useReducer, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/contexts/AuthContext';
@@ -6,7 +6,7 @@ import io from 'socket.io-client';
 
 const RoomContext = createContext();
 
-// Room action types
+// Room action types - REMOVED: AUDIO_UPDATE, SPEAKING_USERS_UPDATE (unused in favor of WebRTC component state)
 const ROOM_ACTIONS = {
   CONNECTING: 'CONNECTING',
   CONNECTED: 'CONNECTED',
@@ -20,12 +20,10 @@ const ROOM_ACTIONS = {
   CODE_UPDATE: 'CODE_UPDATE',
   LANGUAGE_UPDATE: 'LANGUAGE_UPDATE',
   TYPING_UPDATE: 'TYPING_UPDATE',
-  AUDIO_UPDATE: 'AUDIO_UPDATE',
-  SPEAKING_USERS_UPDATE: 'SPEAKING_USERS_UPDATE',
   RESET_ROOM: 'RESET_ROOM'
 };
 
-// Initial room state - AUDIO PERMISSIONS REMOVED
+// Initial room state - REMOVED: audio-related state (handled by WebRTC component), activeTab (no tab UI)
 const initialState = {
   socket: null,
   isConnected: false,
@@ -40,12 +38,7 @@ const initialState = {
   typingUsers: [],
   code: '// Welcome to collaborative coding!\n// Start typing to share your code with the team...',
   language: 'javascript',
-  lastEditUser: null,
-  audioConnected: false,
-  audioUsers: [],
-  isMuted: true,
-  speakingUsers: [],
-  activeTab: 'chat'
+  lastEditUser: null
 };
 
 const roomReducer = (state, action) => {
@@ -104,17 +97,6 @@ const roomReducer = (state, action) => {
 
     case ROOM_ACTIONS.TYPING_UPDATE:
       return { ...state, typingUsers: action.payload.typingUsers };
-
-    case ROOM_ACTIONS.AUDIO_UPDATE:
-      return {
-        ...state,
-        audioConnected: action.payload.connected !== undefined ? action.payload.connected : state.audioConnected,
-        audioUsers: action.payload.users || state.audioUsers,
-        isMuted: action.payload.muted !== undefined ? action.payload.muted : state.isMuted
-      };
-
-    case ROOM_ACTIONS.SPEAKING_USERS_UPDATE:
-      return { ...state, speakingUsers: action.payload.speakingUsers };
 
     case ROOM_ACTIONS.RESET_ROOM:
       return { ...initialState, socket: null, isLoading: false };
@@ -346,21 +328,7 @@ export const RoomProvider = ({ children }) => {
       });
     });
 
-    // Audio events - NO PERMISSION SYSTEM
-    socket.on('audioUsersUpdate', (data) => {
-      dispatch({
-        type: ROOM_ACTIONS.AUDIO_UPDATE,
-        payload: { users: data.audioUsers }
-      });
-    });
-
-    socket.on('speakingUsersUpdate', (data) => {
-      dispatch({
-        type: ROOM_ACTIONS.SPEAKING_USERS_UPDATE,
-        payload: { speakingUsers: data.speakingUsers }
-      });
-    });
-
+    // Room lifecycle events
     socket.on('roomDeleted', () => {
       dispatch({ type: ROOM_ACTIONS.ERROR, payload: { error: 'This room has been deleted' } });
       setTimeout(() => leaveRoom(), 3000);
@@ -557,51 +525,6 @@ export const RoomProvider = ({ children }) => {
     }
   }, [state.isConnected, state.roomId, state.userRole, state.code, user]);
 
-  // Audio functions - NO PERMISSION SYSTEM
-  const toggleAudio = useCallback(() => {
-    const newConnectedState = !state.audioConnected;
-    
-    if (socketRef.current && state.isConnected && state.roomId && user) {
-      socketRef.current.emit('audioToggle', {
-        roomId: state.roomId,
-        username: user.username,
-        connected: newConnectedState
-      });
-    }
-    
-    dispatch({
-      type: ROOM_ACTIONS.AUDIO_UPDATE,
-      payload: { connected: newConnectedState }
-    });
-  }, [state.audioConnected, state.isConnected, state.roomId, user]);
-
-  const toggleMute = useCallback(() => {
-    const newMutedState = !state.isMuted;
-    
-    if (socketRef.current && state.isConnected && state.roomId && user) {
-      socketRef.current.emit('audioMute', {
-        roomId: state.roomId,
-        username: user.username,
-        muted: newMutedState
-      });
-    }
-    
-    dispatch({
-      type: ROOM_ACTIONS.AUDIO_UPDATE,
-      payload: { muted: newMutedState }
-    });
-  }, [state.isMuted, state.isConnected, state.roomId, user]);
-
-  const updateSpeakingStatus = useCallback((isSpeaking) => {
-    if (socketRef.current && state.isConnected && state.roomId && user && state.audioConnected) {
-      socketRef.current.emit('speakingUpdate', {
-        roomId: state.roomId,
-        username: user.username,
-        isSpeaking
-      });
-    }
-  }, [state.isConnected, state.roomId, user, state.audioConnected]);
-
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -618,9 +541,6 @@ export const RoomProvider = ({ children }) => {
     sendTyping,
     sendCodeChange,
     sendLanguageChange,
-    toggleAudio,
-    toggleMute,
-    updateSpeakingStatus,
     isRoomOwner: () => state.userRole === 'owner',
     isRoomModerator: () => ['owner', 'moderator'].includes(state.userRole),
     getSocket: () => socketRef.current

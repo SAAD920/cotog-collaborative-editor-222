@@ -1,17 +1,16 @@
-// src/contexts/AuthContext.js
+// src/contexts/AuthContext.js - CLEANED VERSION WITH UNUSED CODE REMOVED
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
 import { useRouter } from 'next/router';
 
 const AuthContext = createContext();
 
-// Auth action types
+// Auth action types - REMOVED: UPDATE_USER (unused)
 const AUTH_ACTIONS = {
   LOGIN_START: 'LOGIN_START',
   LOGIN_SUCCESS: 'LOGIN_SUCCESS',
   LOGIN_FAILURE: 'LOGIN_FAILURE',
   LOGOUT: 'LOGOUT',
-  RESTORE_SESSION: 'RESTORE_SESSION',
-  UPDATE_USER: 'UPDATE_USER'
+  RESTORE_SESSION: 'RESTORE_SESSION'
 };
 
 // Initial auth state
@@ -23,7 +22,7 @@ const initialState = {
   error: null
 };
 
-// Auth reducer
+// Auth reducer - REMOVED: UPDATE_USER case (unused)
 const authReducer = (state, action) => {
   switch (action.type) {
     case AUTH_ACTIONS.LOGIN_START:
@@ -71,12 +70,6 @@ const authReducer = (state, action) => {
         isAuthenticated: true,
         isLoading: false,
         error: null
-      };
-
-    case AUTH_ACTIONS.UPDATE_USER:
-      return {
-        ...state,
-        user: { ...state.user, ...action.payload.user }
       };
 
     default:
@@ -230,19 +223,7 @@ export const AuthProvider = ({ children }) => {
     router.push('/');
   };
 
-  // Update user profile
-  const updateUser = (updatedUserData) => {
-    const updatedUser = { ...state.user, ...updatedUserData };
-    
-    // Update storage
-    const storage = localStorage.getItem('auth_token') ? localStorage : sessionStorage;
-    storage.setItem('user_data', JSON.stringify(updatedUser));
-
-    dispatch({
-      type: AUTH_ACTIONS.UPDATE_USER,
-      payload: { user: updatedUserData }
-    });
-  };
+  // REMOVED: updateUser function (unused)
 
   // Check if user has specific role
   const hasRole = (role) => {
@@ -298,7 +279,6 @@ export const AuthProvider = ({ children }) => {
     login,
     signup,
     logout,
-    updateUser,
 
     // Utilities
     hasRole,
