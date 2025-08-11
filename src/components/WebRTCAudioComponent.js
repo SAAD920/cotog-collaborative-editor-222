@@ -1,4 +1,4 @@
-// src/components/WebRTCAudioComponent.js - CLEANED VERSION WITH UNUSED CODE REMOVED
+// src/components/WebRTCAudioComponent.js - COMPLETE WORKING SOLUTION
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Peer from 'simple-peer';
 import { useRoom } from '@/contexts/RoomContext';
@@ -9,47 +9,125 @@ const WebRTCAudioComponent = () => {
   const [connectedUsers, setConnectedUsers] = useState([]);
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionError, setConnectionError] = useState(null);
+  const [audioPermissionGranted, setAudioPermissionGranted] = useState(false);
 
-  const peersRef = useRef({});
-  const streamRef = useRef(null);
-  const audioElementsRef = useRef(new Map());
+  // Critical refs for managing connections
+  const peersRef = useRef(new Map()); // userId -> peer
+  const streamsRef = useRef(new Map()); // userId -> stream
+  const audioElementsRef = useRef(new Map()); // userId -> audio element
+  const localStreamRef = useRef(null);
   const mountedRef = useRef(true);
+  const connectionTimeoutsRef = useRef(new Map()); // userId -> timeout
+  const retryCountsRef = useRef(new Map()); // userId -> retry count
 
   const { getSocket, isConnected: roomConnected, currentUser, roomId } = useRoom();
 
-  // Create audio element for remote streams
-  const createAudioElement = useCallback((remoteStream, userId) => {
+  // ICE server configuration for better connectivity
+  const iceServers = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:global.stun.twilio.com:3478' }
+  ];
+
+  // STEP 1: Get user media with comprehensive error handling
+  const getUserMedia = useCallback(async () => {
     try {
-      if (!mountedRef.current || !remoteStream) {
-        console.log('🚫 Skipping audio element creation - unmounted or no stream');
+      console.log('🎤 Requesting microphone access...');
+      
+      const constraints = {
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+          sampleRate: 44100,
+          channelCount: 1
+        },
+        video: false
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      
+      if (!mountedRef.current) {
+        stream.getTracks().forEach(track => track.stop());
         return null;
       }
 
-      // Check if audio element already exists
+      console.log('✅ Microphone access granted');
+      setAudioPermissionGranted(true);
+      setConnectionError(null);
+      
+      return stream;
+    } catch (error) {
+      console.error('❌ Failed to get user media:', error);
+      setAudioPermissionGranted(false);
+      
+      let errorMessage = 'Failed to access microphone';
+      if (error.name === 'NotAllowedError') {
+        errorMessage = 'Microphone access denied. Please allow microphone access and try again.';
+      } else if (error.name === 'NotFoundError') {
+        errorMessage = 'No microphone found. Please connect a microphone and try again.';
+      } else if (error.name === 'NotReadableError') {
+        errorMessage = 'Microphone is being used by another application.';
+      }
+      
+      setConnectionError(errorMessage);
+      throw new Error(errorMessage);
+    }
+  }, []);
+
+  // STEP 2: Create and manage audio elements for remote streams
+  const createAudioElement = useCallback((remoteStream, userId, username) => {
+    try {
+      console.log(`🔊 Creating audio element for ${username} (${userId})`);
+      
+      // Remove existing audio element if it exists
       if (audioElementsRef.current.has(userId)) {
         const existingAudio = audioElementsRef.current.get(userId);
-        existingAudio.srcObject = remoteStream;
-        return existingAudio;
+        existingAudio.pause();
+        existingAudio.srcObject = null;
+        audioElementsRef.current.delete(userId);
       }
 
       const audio = new Audio();
       audio.srcObject = remoteStream;
       audio.autoplay = true;
       audio.volume = 0.8;
+      audio.playsInline = true;
       
-      // Handle autoplay
+      // Handle audio events
+      audio.onloadstart = () => console.log(`📻 Loading audio for ${username}`);
+      audio.oncanplay = () => console.log(`🎵 Audio ready for ${username}`);
+      audio.onplay = () => console.log(`▶️ Audio playing for ${username}`);
+      audio.onerror = (e) => console.error(`❌ Audio error for ${username}:`, e);
+      
+      // Attempt to play
       const playAudio = async () => {
         try {
           await audio.play();
-          console.log(`✅ Audio playing for user: ${userId}`);
-        } catch (error) {
-          console.log(`⚠️ Autoplay blocked for user ${userId}:`, error.message);
-          audio.dataset.needsPlay = 'true';
+          console.log(`✅ Audio successfully playing for ${username}`);
+        } catch (playError) {
+          console.warn(`⚠️ Autoplay prevented for ${username}:`, playError.message);
+          
+          // Create a user gesture handler for mobile
+          const playOnUserGesture = () => {
+            audio.play().then(() => {
+              console.log(`✅ Audio started after user gesture for ${username}`);
+              document.removeEventListener('click', playOnUserGesture);
+              document.removeEventListener('touchstart', playOnUserGesture);
+            }).catch(err => {
+              console.error(`❌ Failed to play after user gesture for ${username}:`, err);
+            });
+          };
+          
+          document.addEventListener('click', playOnUserGesture);
+          document.addEventListener('touchstart', playOnUserGesture);
         }
       };
 
       playAudio();
       audioElementsRef.current.set(userId, audio);
+      
       return audio;
     } catch (error) {
       console.error(`❌ Error creating audio element for ${userId}:`, error);
@@ -57,262 +135,320 @@ const WebRTCAudioComponent = () => {
     }
   }, []);
 
-  // Create peer connection for outgoing calls
-  const createPeer = useCallback((userToCall, callerID, stream) => {
+  // STEP 3: Create peer connection (outgoing call)
+  const createPeer = useCallback((targetUserId, targetUsername, localStream) => {
     try {
-      if (!stream) {
-        console.error('❌ Cannot create peer without stream');
-        return null;
-      }
-
-      // Clean up any existing peer
-      if (peersRef.current[userToCall]) {
-        console.log(`🧹 Cleaning up existing peer for ${userToCall}`);
+      console.log(`📞 Creating outgoing peer connection to ${targetUsername} (${targetUserId})`);
+      
+      // Clean up existing peer if it exists
+      if (peersRef.current.has(targetUserId)) {
+        const existingPeer = peersRef.current.get(targetUserId);
         try {
-          peersRef.current[userToCall].destroy();
-        } catch (cleanupError) {
-          console.error('Error cleaning up existing peer:', cleanupError);
+          existingPeer.destroy();
+        } catch (e) {
+          console.warn('Error destroying existing peer:', e);
         }
-        delete peersRef.current[userToCall];
+        peersRef.current.delete(targetUserId);
       }
 
       const peer = new Peer({
         initiator: true,
         trickle: false,
-        stream: stream,
+        stream: localStream,
         config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' }
-          ]
+          iceServers,
+          iceCandidatePoolSize: 10
         }
       });
 
-      peer.on('signal', signal => {
+      // Set connection timeout
+      const timeoutId = setTimeout(() => {
+        console.error(`⏰ Connection timeout for ${targetUsername}`);
+        setConnectionError(`Connection timeout with ${targetUsername}`);
+        if (peersRef.current.has(targetUserId)) {
+          try {
+            peer.destroy();
+          } catch (e) {
+            console.warn('Error destroying timed out peer:', e);
+          }
+          peersRef.current.delete(targetUserId);
+        }
+      }, 30000); // 30 second timeout
+
+      connectionTimeoutsRef.current.set(targetUserId, timeoutId);
+
+      peer.on('signal', (signal) => {
         try {
           const socket = getSocket();
           if (socket && socket.connected && mountedRef.current) {
-            socket.emit('sending-signal', { 
-              userToCall, 
-              callerID, 
+            console.log(`📡 Sending signal to ${targetUsername} (type: ${signal.type})`);
+            socket.emit('webrtc-signal', {
+              targetUserId,
               signal,
+              callerInfo: {
+                userId: currentUser,
+                username: currentUser
+              },
               roomId
             });
-            console.log(`📞 Signal sent to ${userToCall} (type: ${signal.type})`);
-          } else {
-            console.error('❌ Cannot send signal - socket not available');
           }
-        } catch (signalError) {
-          console.error('❌ Error sending signal:', signalError);
+        } catch (error) {
+          console.error('❌ Error sending signal:', error);
         }
       });
 
-      peer.on('stream', remoteStream => {
+      peer.on('stream', (remoteStream) => {
         try {
           if (mountedRef.current) {
-            console.log(`🎵 Received stream from ${userToCall}`);
-            createAudioElement(remoteStream, userToCall);
+            console.log(`🎵 Received stream from ${targetUsername}`);
+            streamsRef.current.set(targetUserId, remoteStream);
+            createAudioElement(remoteStream, targetUserId, targetUsername);
+            
+            // Clear timeout on successful connection
+            const timeoutId = connectionTimeoutsRef.current.get(targetUserId);
+            if (timeoutId) {
+              clearTimeout(timeoutId);
+              connectionTimeoutsRef.current.delete(targetUserId);
+            }
+            
+            // Update connected users
+            setConnectedUsers(prev => {
+              const filtered = prev.filter(u => u.userId !== targetUserId);
+              return [...filtered, { userId: targetUserId, username: targetUsername }];
+            });
           }
-        } catch (streamError) {
-          console.error('❌ Error handling remote stream:', streamError);
+        } catch (error) {
+          console.error('❌ Error handling remote stream:', error);
         }
       });
 
       peer.on('connect', () => {
-        console.log(`✅ Peer connection established with ${userToCall}`);
+        console.log(`✅ Peer connected to ${targetUsername}`);
         setConnectionError(null);
+        
+        // Clear retry count on successful connection
+        retryCountsRef.current.delete(targetUserId);
       });
 
       peer.on('close', () => {
-        console.log(`🔌 Peer connection closed with ${userToCall}`);
-        if (peersRef.current[userToCall]) {
-          delete peersRef.current[userToCall];
-        }
-        
-        // Clean up audio element
-        if (audioElementsRef.current.has(userToCall)) {
-          const audio = audioElementsRef.current.get(userToCall);
-          audio.pause();
-          audio.srcObject = null;
-          audioElementsRef.current.delete(userToCall);
-        }
-        
-        setConnectedUsers(prev => prev.filter(u => u.id !== userToCall));
+        console.log(`🔌 Peer connection closed with ${targetUsername}`);
+        handlePeerCleanup(targetUserId);
       });
 
-      peer.on('error', err => {
-        console.error(`❌ Peer error with ${userToCall}:`, err);
-        setConnectionError(`Connection failed with ${userToCall}: ${err.message}`);
+      peer.on('error', (error) => {
+        console.error(`❌ Peer error with ${targetUsername}:`, error);
+        setConnectionError(`Connection failed with ${targetUsername}: ${error.message}`);
+        handlePeerCleanup(targetUserId);
         
-        // Clean up failed peer
-        if (peersRef.current[userToCall]) {
-          try {
-            peersRef.current[userToCall].destroy();
-          } catch (destroyError) {
-            console.error('Error destroying failed peer:', destroyError);
-          }
-          delete peersRef.current[userToCall];
-        }
+        // Implement retry logic
+        handleConnectionRetry(targetUserId, targetUsername, localStream);
       });
 
+      peersRef.current.set(targetUserId, peer);
       return peer;
     } catch (error) {
       console.error('❌ Error creating peer:', error);
-      setConnectionError(`Failed to create peer connection: ${error.message}`);
+      setConnectionError(`Failed to create connection: ${error.message}`);
       return null;
     }
-  }, [getSocket, roomId, createAudioElement]);
+  }, [getSocket, roomId, currentUser, createAudioElement]);
 
-  // Create peer connection for incoming calls
-  const addPeer = useCallback((incomingSignal, callerID, stream) => {
+  // STEP 4: Handle incoming peer connection
+  const handleIncomingCall = useCallback((signal, callerInfo, localStream) => {
     try {
-      // Validate inputs
-      if (!incomingSignal) {
-        console.error('❌ Invalid incoming signal');
-        return null;
-      }
+      const { userId: callerUserId, username: callerUsername } = callerInfo;
+      console.log(`📞 Handling incoming call from ${callerUsername} (${callerUserId})`);
 
-      if (!callerID) {
-        console.error('❌ Invalid caller ID');
-        return null;
-      }
-
-      if (!stream) {
-        console.error('❌ Invalid stream');
-        return null;
-      }
-
-      if (!mountedRef.current) {
-        console.log('🚫 Component unmounted, skipping peer creation');
-        return null;
-      }
-
-      console.log(`📞 Creating peer for incoming call from ${callerID}`);
-
-      // Clean up any existing peer
-      if (peersRef.current[callerID]) {
-        console.log(`🧹 Cleaning up existing peer for ${callerID}`);
+      // Clean up existing peer if it exists
+      if (peersRef.current.has(callerUserId)) {
+        const existingPeer = peersRef.current.get(callerUserId);
         try {
-          peersRef.current[callerID].destroy();
-        } catch (cleanupError) {
-          console.error('Error cleaning up existing peer:', cleanupError);
+          existingPeer.destroy();
+        } catch (e) {
+          console.warn('Error destroying existing peer:', e);
         }
-        delete peersRef.current[callerID];
+        peersRef.current.delete(callerUserId);
       }
 
       const peer = new Peer({
         initiator: false,
         trickle: false,
-        stream: stream,
+        stream: localStream,
         config: {
-          iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' }
-          ]
+          iceServers,
+          iceCandidatePoolSize: 10
         }
       });
 
-      peer.on('signal', signal => {
+      // Set connection timeout
+      const timeoutId = setTimeout(() => {
+        console.error(`⏰ Incoming connection timeout from ${callerUsername}`);
+        setConnectionError(`Connection timeout with ${callerUsername}`);
+        if (peersRef.current.has(callerUserId)) {
+          try {
+            peer.destroy();
+          } catch (e) {
+            console.warn('Error destroying timed out incoming peer:', e);
+          }
+          peersRef.current.delete(callerUserId);
+        }
+      }, 30000);
+
+      connectionTimeoutsRef.current.set(callerUserId, timeoutId);
+
+      peer.on('signal', (signal) => {
         try {
           const socket = getSocket();
           if (socket && socket.connected && mountedRef.current) {
-            socket.emit('returning-signal', { 
-              signal, 
-              callerID,
+            console.log(`📡 Sending return signal to ${callerUsername} (type: ${signal.type})`);
+            socket.emit('webrtc-answer', {
+              targetUserId: callerUserId,
+              signal,
+              answererInfo: {
+                userId: currentUser,
+                username: currentUser
+              },
               roomId
             });
-            console.log(`📞 Return signal sent to ${callerID} (type: ${signal.type})`);
-          } else {
-            console.error('❌ Cannot send return signal - socket not available');
           }
-        } catch (signalError) {
-          console.error('❌ Error sending return signal:', signalError);
+        } catch (error) {
+          console.error('❌ Error sending return signal:', error);
         }
       });
 
-      peer.on('stream', remoteStream => {
+      peer.on('stream', (remoteStream) => {
         try {
           if (mountedRef.current) {
-            console.log(`🎵 Received stream from caller ${callerID}`);
-            createAudioElement(remoteStream, callerID);
+            console.log(`🎵 Received stream from caller ${callerUsername}`);
+            streamsRef.current.set(callerUserId, remoteStream);
+            createAudioElement(remoteStream, callerUserId, callerUsername);
+            
+            // Clear timeout on successful connection
+            const timeoutId = connectionTimeoutsRef.current.get(callerUserId);
+            if (timeoutId) {
+              clearTimeout(timeoutId);
+              connectionTimeoutsRef.current.delete(callerUserId);
+            }
+            
+            // Update connected users
+            setConnectedUsers(prev => {
+              const filtered = prev.filter(u => u.userId !== callerUserId);
+              return [...filtered, { userId: callerUserId, username: callerUsername }];
+            });
           }
-        } catch (streamError) {
-          console.error('❌ Error handling remote stream from caller:', streamError);
+        } catch (error) {
+          console.error('❌ Error handling incoming stream:', error);
         }
       });
 
       peer.on('connect', () => {
-        console.log(`✅ Peer connection established with caller ${callerID}`);
+        console.log(`✅ Incoming peer connected from ${callerUsername}`);
         setConnectionError(null);
+        retryCountsRef.current.delete(callerUserId);
       });
 
       peer.on('close', () => {
-        console.log(`🔌 Peer connection closed with caller ${callerID}`);
-        if (peersRef.current[callerID]) {
-          delete peersRef.current[callerID];
-        }
-        
-        // Clean up audio element
-        if (audioElementsRef.current.has(callerID)) {
-          const audio = audioElementsRef.current.get(callerID);
-          audio.pause();
-          audio.srcObject = null;
-          audioElementsRef.current.delete(callerID);
-        }
-        
-        setConnectedUsers(prev => prev.filter(u => u.id !== callerID));
+        console.log(`🔌 Incoming peer connection closed from ${callerUsername}`);
+        handlePeerCleanup(callerUserId);
       });
 
-      peer.on('error', err => {
-        console.error(`❌ Peer error with caller ${callerID}:`, err);
-        setConnectionError(`Connection failed with ${callerID}: ${err.message}`);
-        
-        // Clean up failed peer
-        if (peersRef.current[callerID]) {
-          try {
-            peersRef.current[callerID].destroy();
-          } catch (destroyError) {
-            console.error('Error destroying failed peer:', destroyError);
-          }
-          delete peersRef.current[callerID];
-        }
+      peer.on('error', (error) => {
+        console.error(`❌ Incoming peer error from ${callerUsername}:`, error);
+        setConnectionError(`Connection failed with ${callerUsername}: ${error.message}`);
+        handlePeerCleanup(callerUserId);
       });
 
       // Signal the peer with incoming data
-      if (peer && typeof peer.signal === 'function' && incomingSignal) {
+      try {
+        peer.signal(signal);
+        peersRef.current.set(callerUserId, peer);
+        console.log(`✅ Successfully signaled incoming peer from ${callerUsername}`);
+      } catch (signalError) {
+        console.error(`❌ Error signaling incoming peer from ${callerUsername}:`, signalError);
         try {
-          peer.signal(incomingSignal);
-          console.log(`✅ Successfully signaled peer for ${callerID}`);
-        } catch (signalError) {
-          console.error(`❌ Error signaling peer for ${callerID}:`, signalError);
-          try {
-            peer.destroy();
-          } catch (destroyError) {
-            console.error('Error destroying peer after signal failure:', destroyError);
-          }
-          return null;
+          peer.destroy();
+        } catch (e) {
+          console.warn('Error destroying failed incoming peer:', e);
         }
-      } else {
-        console.error('❌ Invalid peer or signal data');
-        if (peer) {
-          try {
-            peer.destroy();
-          } catch (destroyError) {
-            console.error('Error destroying invalid peer:', destroyError);
-          }
-        }
-        return null;
       }
 
-      return peer;
     } catch (error) {
-      console.error('❌ Error in addPeer:', error);
-      setConnectionError(`Failed to add peer: ${error.message}`);
-      return null;
+      console.error('❌ Error handling incoming call:', error);
+      setConnectionError(`Failed to handle incoming call: ${error.message}`);
     }
-  }, [getSocket, roomId, createAudioElement]);
+  }, [getSocket, roomId, currentUser, createAudioElement]);
 
-  // Toggle audio on/off - simplified, no permissions required
+  // STEP 5: Connection retry logic
+  const handleConnectionRetry = useCallback((userId, username, localStream) => {
+    const currentRetries = retryCountsRef.current.get(userId) || 0;
+    const maxRetries = 3;
+    
+    if (currentRetries < maxRetries) {
+      const retryDelay = Math.min(1000 * Math.pow(2, currentRetries), 5000); // Exponential backoff
+      
+      console.log(`🔄 Retrying connection to ${username} (attempt ${currentRetries + 1}/${maxRetries}) in ${retryDelay}ms`);
+      retryCountsRef.current.set(userId, currentRetries + 1);
+      
+      setTimeout(() => {
+        if (mountedRef.current && localStreamRef.current) {
+          createPeer(userId, username, localStreamRef.current);
+        }
+      }, retryDelay);
+    } else {
+      console.error(`❌ Max retries reached for ${username}`);
+      setConnectionError(`Failed to connect to ${username} after ${maxRetries} attempts`);
+      retryCountsRef.current.delete(userId);
+    }
+  }, [createPeer]);
+
+  // STEP 6: Cleanup function
+  const handlePeerCleanup = useCallback((userId) => {
+    // Clear timeout
+    const timeoutId = connectionTimeoutsRef.current.get(userId);
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      connectionTimeoutsRef.current.delete(userId);
+    }
+
+    // Clean up peer
+    if (peersRef.current.has(userId)) {
+      try {
+        const peer = peersRef.current.get(userId);
+        peer.destroy();
+      } catch (e) {
+        console.warn('Error destroying peer during cleanup:', e);
+      }
+      peersRef.current.delete(userId);
+    }
+
+    // Clean up stream
+    if (streamsRef.current.has(userId)) {
+      try {
+        const stream = streamsRef.current.get(userId);
+        stream.getTracks().forEach(track => track.stop());
+      } catch (e) {
+        console.warn('Error stopping stream during cleanup:', e);
+      }
+      streamsRef.current.delete(userId);
+    }
+
+    // Clean up audio element
+    if (audioElementsRef.current.has(userId)) {
+      try {
+        const audio = audioElementsRef.current.get(userId);
+        audio.pause();
+        audio.srcObject = null;
+      } catch (e) {
+        console.warn('Error cleaning up audio during cleanup:', e);
+      }
+      audioElementsRef.current.delete(userId);
+    }
+
+    // Update connected users
+    setConnectedUsers(prev => prev.filter(u => u.userId !== userId));
+  }, []);
+
+  // STEP 7: Toggle audio on/off
   const toggleAudio = useCallback(async () => {
     if (!isAudioOn) {
       // Turn audio ON
@@ -320,89 +456,73 @@ const WebRTCAudioComponent = () => {
       setConnectionError(null);
       
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
+        const stream = await getUserMedia();
+        
+        if (!mountedRef.current || !stream) {
+          if (stream) {
+            stream.getTracks().forEach(track => track.stop());
           }
-        });
-
-        if (!mountedRef.current) {
-          stream.getTracks().forEach(track => track.stop());
           return;
         }
 
-        streamRef.current = stream;
+        localStreamRef.current = stream;
         setIsAudioOn(true);
         setIsConnecting(false);
 
-        // Join voice room immediately
+        // Join voice room
         const socket = getSocket();
         if (socket && socket.connected) {
           socket.emit('join-voice-room', {
             roomId,
-            userId: currentUser,
-            username: currentUser
+            userInfo: {
+              userId: currentUser,
+              username: currentUser
+            }
           });
-          console.log('🎙️ Joined voice room immediately');
+          console.log('🎙️ Joined voice room');
         } else {
           throw new Error('Socket not connected');
         }
       } catch (error) {
-        console.error('❌ Failed to get audio stream:', error);
-        setConnectionError(`Failed to access microphone: ${error.message}`);
+        console.error('❌ Failed to turn on audio:', error);
         setIsConnecting(false);
-        
-        if (error.name === 'NotAllowedError') {
-          alert('Microphone access denied. Please allow microphone access and try again.');
-        } else if (error.name === 'NotFoundError') {
-          alert('No microphone found. Please connect a microphone and try again.');
-        } else {
-          alert(`Failed to access microphone: ${error.message}`);
-        }
+        setIsAudioOn(false);
       }
     } else {
       // Turn audio OFF
       try {
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach(track => track.stop());
-          streamRef.current = null;
+        // Stop local stream
+        if (localStreamRef.current) {
+          localStreamRef.current.getTracks().forEach(track => track.stop());
+          localStreamRef.current = null;
         }
 
-        // Close all peer connections
-        Object.entries(peersRef.current).forEach(([userId, peer]) => {
-          try {
-            if (peer && typeof peer.destroy === 'function') {
-              peer.destroy();
-            }
-          } catch (error) {
-            console.error(`Error destroying peer for ${userId}:`, error);
-          }
-        });
-        peersRef.current = {};
+        // Clean up all peer connections
+        for (const [userId] of peersRef.current) {
+          handlePeerCleanup(userId);
+        }
 
-        // Stop all audio elements
-        audioElementsRef.current.forEach((audio, userId) => {
-          try {
-            audio.pause();
-            audio.srcObject = null;
-          } catch (error) {
-            console.error(`Error stopping audio for ${userId}:`, error);
-          }
-        });
+        // Clear all refs
+        peersRef.current.clear();
+        streamsRef.current.clear();
         audioElementsRef.current.clear();
+        connectionTimeoutsRef.current.clear();
+        retryCountsRef.current.clear();
 
         setIsAudioOn(false);
         setConnectedUsers([]);
         setConnectionError(null);
+        setAudioPermissionGranted(false);
 
         // Leave voice room
         const socket = getSocket();
         if (socket && socket.connected) {
           socket.emit('leave-voice-room', {
             roomId,
-            userId: currentUser
+            userInfo: {
+              userId: currentUser,
+              username: currentUser
+            }
           });
         }
         
@@ -412,13 +532,13 @@ const WebRTCAudioComponent = () => {
         setConnectionError(`Error disconnecting: ${error.message}`);
       }
     }
-  }, [isAudioOn, getSocket, roomId, currentUser]);
+  }, [isAudioOn, getUserMedia, getSocket, roomId, currentUser, handlePeerCleanup]);
 
-  // Toggle mute
+  // STEP 8: Toggle mute
   const toggleMute = useCallback(() => {
     try {
-      if (streamRef.current) {
-        streamRef.current.getAudioTracks().forEach(track => {
+      if (localStreamRef.current) {
+        localStreamRef.current.getAudioTracks().forEach(track => {
           track.enabled = isMuted;
         });
         setIsMuted(!isMuted);
@@ -430,196 +550,208 @@ const WebRTCAudioComponent = () => {
     }
   }, [isMuted]);
 
-  // Socket event handlers
+  // STEP 9: Socket event handlers
   useEffect(() => {
     const socket = getSocket();
     if (!socket || !isAudioOn) return;
 
-    const handleUserJoinedVoice = ({ userId, username }) => {
+    // Handle existing voice users
+    const handleVoiceRoomUsers = ({ users }) => {
       try {
-        if (userId !== currentUser && streamRef.current && mountedRef.current) {
-          console.log(`👤 User ${username} joined voice chat - connecting`);
-          const peer = createPeer(userId, currentUser, streamRef.current);
-          if (peer) {
-            peersRef.current[userId] = peer;
-            setConnectedUsers(prev => [...prev.filter(u => u.id !== userId), { id: userId, username }]);
+        console.log(`📋 Received ${users.length} existing voice users`);
+        
+        if (!localStreamRef.current || !mountedRef.current) {
+          console.warn('⚠️ No local stream available for connecting to existing users');
+          return;
+        }
+
+        users.forEach((user, index) => {
+          if (user.userId !== currentUser) {
+            // Stagger connections to avoid overwhelming the network
+            setTimeout(() => {
+              if (localStreamRef.current && mountedRef.current) {
+                console.log(`🔗 Connecting to existing user: ${user.username}`);
+                createPeer(user.userId, user.username, localStreamRef.current);
+              }
+            }, index * 500);
           }
+        });
+      } catch (error) {
+        console.error('❌ Error handling existing voice users:', error);
+      }
+    };
+
+    // Handle user joining voice
+    const handleUserJoinedVoice = ({ userInfo }) => {
+      try {
+        const { userId, username } = userInfo;
+        
+        if (userId !== currentUser && localStreamRef.current && mountedRef.current) {
+          console.log(`👤 ${username} joined voice chat - initiating connection`);
+          
+          // Small delay to ensure the other user is ready
+          setTimeout(() => {
+            if (localStreamRef.current && mountedRef.current) {
+              createPeer(userId, username, localStreamRef.current);
+            }
+          }, 1000);
         }
       } catch (error) {
         console.error('❌ Error handling user joined voice:', error);
       }
     };
 
-    const handleUserCalling = ({ signal, from, username }) => {
+    // Handle incoming WebRTC signal
+    const handleWebRTCSignal = ({ signal, callerInfo }) => {
       try {
-        if (from !== currentUser && streamRef.current && mountedRef.current) {
-          console.log(`📞 Incoming call from ${username}`);
-          const peer = addPeer(signal, from, streamRef.current);
-          if (peer) {
-            peersRef.current[from] = peer;
-            setConnectedUsers(prev => [...prev.filter(u => u.id !== from), { id: from, username }]);
-          }
+        const { userId, username } = callerInfo;
+        
+        if (userId !== currentUser && localStreamRef.current && mountedRef.current) {
+          console.log(`📞 Incoming WebRTC signal from ${username}`);
+          handleIncomingCall(signal, callerInfo, localStreamRef.current);
         }
       } catch (error) {
-        console.error('❌ Error handling incoming call:', error);
+        console.error('❌ Error handling WebRTC signal:', error);
       }
     };
 
-    const handleReceivingSignal = ({ signal, id }) => {
+    // Handle WebRTC answer
+    const handleWebRTCAnswer = ({ signal, answererInfo }) => {
       try {
-        const peer = peersRef.current[id];
-        if (peer && typeof peer.signal === 'function' && signal) {
+        const { userId } = answererInfo;
+        
+        const peer = peersRef.current.get(userId);
+        if (peer && signal) {
+          console.log(`✅ Received answer from ${answererInfo.username}`);
           peer.signal(signal);
-          console.log(`✅ Successfully processed return signal from ${id}`);
         } else {
-          console.error('❌ Invalid peer or signal for return signal:', { 
-            peerExists: !!peer, 
-            signalExists: !!signal
-          });
+          console.warn(`⚠️ No peer found for answer from ${userId}`);
         }
       } catch (error) {
-        console.error('❌ Error processing return signal:', error);
+        console.error('❌ Error handling WebRTC answer:', error);
       }
     };
 
-    const handleUserLeftVoice = ({ userId }) => {
+    // Handle user leaving voice
+    const handleUserLeftVoice = ({ userInfo }) => {
       try {
-        if (peersRef.current[userId]) {
-          console.log(`👋 User ${userId} left voice chat`);
-          try {
-            peersRef.current[userId].destroy();
-          } catch (destroyError) {
-            console.error('Error destroying peer on user leave:', destroyError);
-          }
-          delete peersRef.current[userId];
-        }
+        const { userId, username } = userInfo;
         
-        if (audioElementsRef.current.has(userId)) {
-          const audio = audioElementsRef.current.get(userId);
-          try {
-            audio.pause();
-            audio.srcObject = null;
-          } catch (audioError) {
-            console.error('Error cleaning up audio element:', audioError);
-          }
-          audioElementsRef.current.delete(userId);
+        if (userId !== currentUser) {
+          console.log(`👋 ${username} left voice chat`);
+          handlePeerCleanup(userId);
         }
-        
-        setConnectedUsers(prev => prev.filter(u => u.id !== userId));
       } catch (error) {
         console.error('❌ Error handling user left voice:', error);
       }
     };
 
-    const handleVoiceRoomUsers = ({ users: voiceUsers }) => {
-      try {
-        if (streamRef.current && mountedRef.current) {
-          voiceUsers.forEach(voiceUser => {
-            if (voiceUser.userId !== currentUser && !peersRef.current[voiceUser.userId]) {
-              setTimeout(() => {
-                if (streamRef.current && mountedRef.current) {
-                  console.log(`🔗 Connecting to existing voice user: ${voiceUser.username}`);
-                  const peer = createPeer(voiceUser.userId, currentUser, streamRef.current);
-                  if (peer) {
-                    peersRef.current[voiceUser.userId] = peer;
-                    setConnectedUsers(prev => [...prev.filter(u => u.id !== voiceUser.userId), voiceUser]);
-                  }
-                }
-              }, Math.random() * 1000);
-            }
-          });
-        }
-      } catch (error) {
-        console.error('❌ Error handling voice room users:', error);
-      }
-    };
-
     // Add event listeners
-    socket.on('user-joined-voice', handleUserJoinedVoice);
-    socket.on('user-calling', handleUserCalling);
-    socket.on('receiving-returned-signal', handleReceivingSignal);
-    socket.on('user-left-voice', handleUserLeftVoice);
     socket.on('voice-room-users', handleVoiceRoomUsers);
+    socket.on('user-joined-voice', handleUserJoinedVoice);
+    socket.on('webrtc-signal', handleWebRTCSignal);
+    socket.on('webrtc-answer', handleWebRTCAnswer);
+    socket.on('user-left-voice', handleUserLeftVoice);
 
     return () => {
-      socket.off('user-joined-voice', handleUserJoinedVoice);
-      socket.off('user-calling', handleUserCalling);
-      socket.off('receiving-returned-signal', handleReceivingSignal);
-      socket.off('user-left-voice', handleUserLeftVoice);
       socket.off('voice-room-users', handleVoiceRoomUsers);
+      socket.off('user-joined-voice', handleUserJoinedVoice);
+      socket.off('webrtc-signal', handleWebRTCSignal);
+      socket.off('webrtc-answer', handleWebRTCAnswer);
+      socket.off('user-left-voice', handleUserLeftVoice);
     };
-  }, [getSocket, isAudioOn, currentUser, createPeer, addPeer]);
+  }, [getSocket, isAudioOn, currentUser, createPeer, handleIncomingCall, handlePeerCleanup]);
 
-  // Cleanup on unmount
+  // STEP 10: Cleanup on unmount
   useEffect(() => {
     return () => {
       mountedRef.current = false;
       
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
+      // Stop local stream
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
       }
       
-      Object.values(peersRef.current).forEach(peer => {
+      // Clean up all connections
+      for (const [userId] of peersRef.current) {
         try {
-          if (peer && typeof peer.destroy === 'function') {
-            peer.destroy();
-          }
-        } catch (error) {
-          console.error('Error destroying peer on unmount:', error);
+          const peer = peersRef.current.get(userId);
+          peer.destroy();
+        } catch (e) {
+          console.warn('Error destroying peer on unmount:', e);
         }
-      });
+      }
       
+      // Clean up audio elements
       audioElementsRef.current.forEach((audio) => {
         try {
           audio.pause();
           audio.srcObject = null;
-        } catch (error) {
-          console.error('Error cleaning up audio on unmount:', error);
+        } catch (e) {
+          console.warn('Error cleaning up audio on unmount:', e);
         }
       });
+
+      // Clear all timeouts
+      connectionTimeoutsRef.current.forEach(timeoutId => clearTimeout(timeoutId));
+      
+      console.log('🧹 WebRTC component cleaned up');
     };
   }, []);
 
   if (!roomConnected) {
-    return null;
+    return (
+      <div className="p-4 text-center">
+        <div className="text-gray-500">
+          <p>🔌 Connecting to room...</p>
+          <p className="text-xs mt-1">Voice chat will be available once connected</p>
+        </div>
+      </div>
+    );
   }
 
   return (
-    <div className="flex flex-col space-y-2">
-      {/* Connection Error Display */}
-      {connectionError && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-md text-xs">
-          <div className="flex items-center">
-            <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-            </svg>
-            <span>{connectionError}</span>
-          </div>
-          <button 
-            onClick={() => setConnectionError(null)}
-            className="mt-1 text-xs underline hover:no-underline"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      {/* Instant Access Message */}
-      <div className="bg-green-50 border border-green-200 text-green-700 px-3 py-2 rounded-md text-xs">
-        <div className="flex items-center">
-          <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-          </svg>
-          <span>🎙️ Instant voice access - No permissions required!</span>
+    <div className="flex flex-col space-y-3 p-4 bg-white rounded-lg border">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-gray-800 flex items-center">
+          🎙️ Voice Chat
+        </h3>
+        <div className="flex items-center space-x-2">
+          <div className={`w-2 h-2 rounded-full ${roomConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+          <span className="text-xs text-gray-600">
+            {roomConnected ? 'Connected' : 'Disconnected'}
+          </span>
         </div>
       </div>
 
+      {/* Connection Error Display */}
+      {connectionError && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-md text-xs">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center">
+              <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+              <span>{connectionError}</span>
+            </div>
+            <button 
+              onClick={() => setConnectionError(null)}
+              className="text-red-500 hover:text-red-700 text-xs ml-2"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Main Controls */}
       <div className="flex items-center space-x-2">
         {/* Main Audio Toggle Button */}
         <button
           onClick={toggleAudio}
           disabled={isConnecting}
-          className={`flex items-center space-x-1 px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+          className={`flex items-center space-x-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
             isConnecting
               ? 'bg-gray-400 cursor-not-allowed text-white'
               : !isAudioOn
@@ -629,22 +761,22 @@ const WebRTCAudioComponent = () => {
         >
           {isConnecting ? (
             <>
-              <div className="animate-spin rounded-full h-3 w-3 border border-white border-t-transparent"></div>
+              <div className="animate-spin rounded-full h-4 w-4 border border-white border-t-transparent"></div>
               <span>Connecting...</span>
             </>
           ) : !isAudioOn ? (
             <>
-              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
               </svg>
               <span>Join Voice</span>
             </>
           ) : (
             <>
-              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
               </svg>
-              <span>In Voice ({connectedUsers.length + 1})</span>
+              <span>Connected ({connectedUsers.length + 1})</span>
             </>
           )}
         </button>
@@ -653,7 +785,7 @@ const WebRTCAudioComponent = () => {
         {isAudioOn && (
           <button
             onClick={toggleMute}
-            className={`flex items-center space-x-1 px-2 py-1 rounded-md text-xs transition-colors ${
+            className={`flex items-center space-x-1 px-3 py-2 rounded-md text-xs transition-colors ${
               isMuted
                 ? 'bg-red-500 hover:bg-red-600 text-white'
                 : 'bg-gray-500 hover:bg-gray-600 text-white'
@@ -676,56 +808,109 @@ const WebRTCAudioComponent = () => {
             )}
           </button>
         )}
+
+        {/* Permission Status */}
+        {isAudioOn && (
+          <div className="flex items-center space-x-1">
+            <div className={`w-2 h-2 rounded-full ${audioPermissionGranted ? 'bg-green-400' : 'bg-red-400'}`}></div>
+            <span className="text-xs text-gray-600">
+              {audioPermissionGranted ? 'Mic OK' : 'Mic Error'}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Connected Users Display */}
-      {isAudioOn && connectedUsers.length > 0 && (
-        <div className="text-xs text-gray-600">
-          <p className="font-medium">In voice chat:</p>
-          <ul className="mt-1 space-y-1">
-            <li className="flex items-center text-green-600">
-              <div className="w-2 h-2 bg-green-400 rounded-full mr-2"></div>
-              You ({isMuted ? 'muted' : 'speaking'})
-            </li>
+      {isAudioOn && (
+        <div className="bg-gray-50 p-3 rounded-md">
+          <p className="text-xs font-medium text-gray-700 mb-2">Voice Chat Participants:</p>
+          <div className="space-y-1">
+            {/* Current User */}
+            <div className="flex items-center text-xs">
+              <div className={`w-2 h-2 rounded-full mr-2 ${isMuted ? 'bg-red-400' : 'bg-green-400'} animate-pulse`}></div>
+              <span className="font-medium text-green-600">
+                You ({isMuted ? 'muted' : 'speaking'})
+              </span>
+            </div>
+            
+            {/* Connected Users */}
             {connectedUsers.map(user => (
-              <li key={user.id} className="flex items-center">
-                <div className="w-2 h-2 bg-green-400 rounded-full mr-2"></div>
-                {user.username}
-              </li>
+              <div key={user.userId} className="flex items-center text-xs">
+                <div className="w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse"></div>
+                <span className="text-gray-700">{user.username}</span>
+                <span className="ml-1 text-green-600">🎤</span>
+              </div>
             ))}
-          </ul>
+            
+            {connectedUsers.length === 0 && (
+              <div className="text-xs text-gray-500 italic">
+                Waiting for others to join voice chat...
+              </div>
+            )}
+          </div>
+          
+          {/* Connection Stats */}
+          <div className="mt-2 pt-2 border-t border-gray-200">
+            <div className="flex justify-between text-xs text-gray-500">
+              <span>Total: {connectedUsers.length + 1} users</span>
+              <span>Active connections: {peersRef.current.size}</span>
+            </div>
+          </div>
         </div>
       )}
 
       {/* Status Messages */}
       {!isAudioOn && (
-        <div className="text-xs text-gray-500 text-center">
-          <p>🎙️ Click "Join Voice" to start talking with your team</p>
-          <p className="text-green-600 font-medium">✅ No permissions required - instant access!</p>
-        </div>
-      )}
-
-      {isAudioOn && connectedUsers.length === 0 && (
-        <div className="text-xs text-gray-500 text-center">
-          <p>🎙️ You're in voice chat</p>
-          <p>Waiting for others to join...</p>
-        </div>
-      )}
-
-      {/* Audio Quality Indicator */}
-      {isAudioOn && (
-        <div className="text-xs text-center">
-          <div className="flex items-center justify-center space-x-1">
-            <div className={`w-1 h-3 rounded-full ${isMuted ? 'bg-red-400' : 'bg-green-400'} animate-pulse`}></div>
-            <div className={`w-1 h-2 rounded-full ${isMuted ? 'bg-red-300' : 'bg-green-300'} animate-pulse`} style={{animationDelay: '0.1s'}}></div>
-            <div className={`w-1 h-4 rounded-full ${isMuted ? 'bg-red-400' : 'bg-green-400'} animate-pulse`} style={{animationDelay: '0.2s'}}></div>
-            <div className={`w-1 h-2 rounded-full ${isMuted ? 'bg-red-300' : 'bg-green-300'} animate-pulse`} style={{animationDelay: '0.3s'}}></div>
-            <span className="ml-2 text-gray-600">
-              {isMuted ? 'Microphone muted' : 'Audio active'}
-            </span>
+        <div className="bg-blue-50 p-3 rounded-md text-center">
+          <div className="text-sm text-blue-800 mb-1">
+            🎙️ High-Quality Voice Chat Ready
+          </div>
+          <div className="text-xs text-blue-600">
+            Click "Join Voice" to start talking with your team
+          </div>
+          <div className="text-xs text-green-600 mt-1 font-medium">
+            ✅ No complex setup - instant connection!
           </div>
         </div>
       )}
+
+      {isConnecting && (
+        <div className="bg-yellow-50 p-3 rounded-md text-center">
+          <div className="text-sm text-yellow-800 mb-1">
+            🔄 Setting up voice connection...
+          </div>
+          <div className="text-xs text-yellow-600">
+            Requesting microphone access and connecting to peers
+          </div>
+        </div>
+      )}
+
+      {/* Technical Info (Development) */}
+      {process.env.NODE_ENV === 'development' && isAudioOn && (
+        <details className="bg-gray-100 p-2 rounded text-xs">
+          <summary className="cursor-pointer font-medium">🔧 Technical Info</summary>
+          <div className="mt-2 space-y-1">
+            <div>Local Stream: {localStreamRef.current ? '✅ Active' : '❌ None'}</div>
+            <div>Peer Connections: {peersRef.current.size}</div>
+            <div>Audio Elements: {audioElementsRef.current.size}</div>
+            <div>Active Timeouts: {connectionTimeoutsRef.current.size}</div>
+            <div>Permission: {audioPermissionGranted ? '✅ Granted' : '❌ Denied'}</div>
+            <div>Component Mounted: {mountedRef.current ? '✅ Yes' : '❌ No'}</div>
+          </div>
+        </details>
+      )}
+
+      {/* Help Text */}
+      <div className="text-center">
+        <div className="text-xs text-gray-500">
+          💡 <strong>Tip:</strong> Make sure your microphone is not being used by other apps
+        </div>
+        {!isAudioOn && (
+          <div className="text-xs text-gray-400 mt-1">
+            WebRTC peer-to-peer connection for best quality
+          </div>
+        )}
+      </div>
     </div>
   );
 };
