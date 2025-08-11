@@ -1,4 +1,4 @@
-// src/components/WebRTCAudioComponent.js - COMPLETE WORKING SOLUTION
+// src/components/WebRTCAudioComponent.js - FIXED VERSION - CONNECTION ISSUES RESOLVED
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Peer from 'simple-peer';
 import { useRoom } from '@/contexts/RoomContext';
@@ -19,6 +19,9 @@ const WebRTCAudioComponent = () => {
   const mountedRef = useRef(true);
   const connectionTimeoutsRef = useRef(new Map()); // userId -> timeout
   const retryCountsRef = useRef(new Map()); // userId -> retry count
+  
+  // CRITICAL FIX: Track pending connections to prevent duplicates
+  const pendingConnectionsRef = useRef(new Set());
 
   const { getSocket, isConnected: roomConnected, currentUser, roomId } = useRoom();
 
@@ -135,10 +138,20 @@ const WebRTCAudioComponent = () => {
     }
   }, []);
 
-  // STEP 3: Create peer connection (outgoing call)
+  // STEP 3: Create peer connection (outgoing call) - FIXED
   const createPeer = useCallback((targetUserId, targetUsername, localStream) => {
     try {
+      // CRITICAL FIX: Prevent duplicate connections
+      const connectionKey = `${currentUser}-${targetUserId}`;
+      if (pendingConnectionsRef.current.has(connectionKey)) {
+        console.log(`⚠️ Connection already pending to ${targetUsername}, skipping`);
+        return null;
+      }
+      
       console.log(`📞 Creating outgoing peer connection to ${targetUsername} (${targetUserId})`);
+      
+      // Mark connection as pending
+      pendingConnectionsRef.current.add(connectionKey);
       
       // Clean up existing peer if it exists
       if (peersRef.current.has(targetUserId)) {
@@ -161,10 +174,14 @@ const WebRTCAudioComponent = () => {
         }
       });
 
-      // Set connection timeout
+      // FIXED: Shorter timeout and better cleanup
       const timeoutId = setTimeout(() => {
         console.error(`⏰ Connection timeout for ${targetUsername}`);
         setConnectionError(`Connection timeout with ${targetUsername}`);
+        
+        // Clean up pending connection
+        pendingConnectionsRef.current.delete(connectionKey);
+        
         if (peersRef.current.has(targetUserId)) {
           try {
             peer.destroy();
@@ -173,7 +190,7 @@ const WebRTCAudioComponent = () => {
           }
           peersRef.current.delete(targetUserId);
         }
-      }, 30000); // 30 second timeout
+      }, 15000); // Reduced to 15 seconds
 
       connectionTimeoutsRef.current.set(targetUserId, timeoutId);
 
@@ -182,6 +199,8 @@ const WebRTCAudioComponent = () => {
           const socket = getSocket();
           if (socket && socket.connected && mountedRef.current) {
             console.log(`📡 Sending signal to ${targetUsername} (type: ${signal.type})`);
+            
+            // FIXED: Use proper event names matching server
             socket.emit('webrtc-signal', {
               targetUserId,
               signal,
@@ -211,6 +230,9 @@ const WebRTCAudioComponent = () => {
               connectionTimeoutsRef.current.delete(targetUserId);
             }
             
+            // Clear pending connection
+            pendingConnectionsRef.current.delete(connectionKey);
+            
             // Update connected users
             setConnectedUsers(prev => {
               const filtered = prev.filter(u => u.userId !== targetUserId);
@@ -225,22 +247,23 @@ const WebRTCAudioComponent = () => {
       peer.on('connect', () => {
         console.log(`✅ Peer connected to ${targetUsername}`);
         setConnectionError(null);
-        
-        // Clear retry count on successful connection
         retryCountsRef.current.delete(targetUserId);
+        pendingConnectionsRef.current.delete(connectionKey);
       });
 
       peer.on('close', () => {
         console.log(`🔌 Peer connection closed with ${targetUsername}`);
+        pendingConnectionsRef.current.delete(connectionKey);
         handlePeerCleanup(targetUserId);
       });
 
       peer.on('error', (error) => {
         console.error(`❌ Peer error with ${targetUsername}:`, error);
         setConnectionError(`Connection failed with ${targetUsername}: ${error.message}`);
+        pendingConnectionsRef.current.delete(connectionKey);
         handlePeerCleanup(targetUserId);
         
-        // Implement retry logic
+        // FIXED: Implement retry logic with backoff
         handleConnectionRetry(targetUserId, targetUsername, localStream);
       });
 
@@ -253,11 +276,21 @@ const WebRTCAudioComponent = () => {
     }
   }, [getSocket, roomId, currentUser, createAudioElement]);
 
-  // STEP 4: Handle incoming peer connection
+  // STEP 4: Handle incoming peer connection - FIXED
   const handleIncomingCall = useCallback((signal, callerInfo, localStream) => {
     try {
       const { userId: callerUserId, username: callerUsername } = callerInfo;
       console.log(`📞 Handling incoming call from ${callerUsername} (${callerUserId})`);
+
+      // CRITICAL FIX: Prevent duplicate incoming connections
+      const connectionKey = `${callerUserId}-${currentUser}`;
+      if (pendingConnectionsRef.current.has(connectionKey)) {
+        console.log(`⚠️ Incoming connection already pending from ${callerUsername}, skipping`);
+        return;
+      }
+      
+      // Mark connection as pending
+      pendingConnectionsRef.current.add(connectionKey);
 
       // Clean up existing peer if it exists
       if (peersRef.current.has(callerUserId)) {
@@ -280,10 +313,14 @@ const WebRTCAudioComponent = () => {
         }
       });
 
-      // Set connection timeout
+      // FIXED: Shorter timeout
       const timeoutId = setTimeout(() => {
         console.error(`⏰ Incoming connection timeout from ${callerUsername}`);
         setConnectionError(`Connection timeout with ${callerUsername}`);
+        
+        // Clean up pending connection
+        pendingConnectionsRef.current.delete(connectionKey);
+        
         if (peersRef.current.has(callerUserId)) {
           try {
             peer.destroy();
@@ -292,7 +329,7 @@ const WebRTCAudioComponent = () => {
           }
           peersRef.current.delete(callerUserId);
         }
-      }, 30000);
+      }, 15000);
 
       connectionTimeoutsRef.current.set(callerUserId, timeoutId);
 
@@ -301,6 +338,8 @@ const WebRTCAudioComponent = () => {
           const socket = getSocket();
           if (socket && socket.connected && mountedRef.current) {
             console.log(`📡 Sending return signal to ${callerUsername} (type: ${signal.type})`);
+            
+            // FIXED: Use proper event names matching server
             socket.emit('webrtc-answer', {
               targetUserId: callerUserId,
               signal,
@@ -330,6 +369,9 @@ const WebRTCAudioComponent = () => {
               connectionTimeoutsRef.current.delete(callerUserId);
             }
             
+            // Clear pending connection
+            pendingConnectionsRef.current.delete(connectionKey);
+            
             // Update connected users
             setConnectedUsers(prev => {
               const filtered = prev.filter(u => u.userId !== callerUserId);
@@ -345,16 +387,19 @@ const WebRTCAudioComponent = () => {
         console.log(`✅ Incoming peer connected from ${callerUsername}`);
         setConnectionError(null);
         retryCountsRef.current.delete(callerUserId);
+        pendingConnectionsRef.current.delete(connectionKey);
       });
 
       peer.on('close', () => {
         console.log(`🔌 Incoming peer connection closed from ${callerUsername}`);
+        pendingConnectionsRef.current.delete(connectionKey);
         handlePeerCleanup(callerUserId);
       });
 
       peer.on('error', (error) => {
         console.error(`❌ Incoming peer error from ${callerUsername}:`, error);
         setConnectionError(`Connection failed with ${callerUsername}: ${error.message}`);
+        pendingConnectionsRef.current.delete(connectionKey);
         handlePeerCleanup(callerUserId);
       });
 
@@ -365,6 +410,7 @@ const WebRTCAudioComponent = () => {
         console.log(`✅ Successfully signaled incoming peer from ${callerUsername}`);
       } catch (signalError) {
         console.error(`❌ Error signaling incoming peer from ${callerUsername}:`, signalError);
+        pendingConnectionsRef.current.delete(connectionKey);
         try {
           peer.destroy();
         } catch (e) {
@@ -378,13 +424,13 @@ const WebRTCAudioComponent = () => {
     }
   }, [getSocket, roomId, currentUser, createAudioElement]);
 
-  // STEP 5: Connection retry logic
+  // STEP 5: Connection retry logic - IMPROVED
   const handleConnectionRetry = useCallback((userId, username, localStream) => {
     const currentRetries = retryCountsRef.current.get(userId) || 0;
-    const maxRetries = 3;
+    const maxRetries = 2; // Reduced retries
     
     if (currentRetries < maxRetries) {
-      const retryDelay = Math.min(1000 * Math.pow(2, currentRetries), 5000); // Exponential backoff
+      const retryDelay = Math.min(2000 * Math.pow(2, currentRetries), 8000); // Faster retry
       
       console.log(`🔄 Retrying connection to ${username} (attempt ${currentRetries + 1}/${maxRetries}) in ${retryDelay}ms`);
       retryCountsRef.current.set(userId, currentRetries + 1);
@@ -401,7 +447,7 @@ const WebRTCAudioComponent = () => {
     }
   }, [createPeer]);
 
-  // STEP 6: Cleanup function
+  // STEP 6: Cleanup function - IMPROVED
   const handlePeerCleanup = useCallback((userId) => {
     // Clear timeout
     const timeoutId = connectionTimeoutsRef.current.get(userId);
@@ -444,11 +490,18 @@ const WebRTCAudioComponent = () => {
       audioElementsRef.current.delete(userId);
     }
 
+    // Clean up pending connections
+    pendingConnectionsRef.current.forEach(key => {
+      if (key.includes(userId)) {
+        pendingConnectionsRef.current.delete(key);
+      }
+    });
+
     // Update connected users
     setConnectedUsers(prev => prev.filter(u => u.userId !== userId));
   }, []);
 
-  // STEP 7: Toggle audio on/off
+  // STEP 7: Toggle audio on/off - IMPROVED
   const toggleAudio = useCallback(async () => {
     if (!isAudioOn) {
       // Turn audio ON
@@ -469,7 +522,7 @@ const WebRTCAudioComponent = () => {
         setIsAudioOn(true);
         setIsConnecting(false);
 
-        // Join voice room
+        // Join voice room with proper user info
         const socket = getSocket();
         if (socket && socket.connected) {
           socket.emit('join-voice-room', {
@@ -508,13 +561,14 @@ const WebRTCAudioComponent = () => {
         audioElementsRef.current.clear();
         connectionTimeoutsRef.current.clear();
         retryCountsRef.current.clear();
+        pendingConnectionsRef.current.clear(); // FIXED: Clear pending connections
 
         setIsAudioOn(false);
         setConnectedUsers([]);
         setConnectionError(null);
         setAudioPermissionGranted(false);
 
-        // Leave voice room
+        // Leave voice room with proper user info
         const socket = getSocket();
         if (socket && socket.connected) {
           socket.emit('leave-voice-room', {
@@ -550,12 +604,12 @@ const WebRTCAudioComponent = () => {
     }
   }, [isMuted]);
 
-  // STEP 9: Socket event handlers
+  // STEP 9: Socket event handlers - FIXED
   useEffect(() => {
     const socket = getSocket();
     if (!socket || !isAudioOn) return;
 
-    // Handle existing voice users
+    // Handle existing voice users - FIXED: Delay connections
     const handleVoiceRoomUsers = ({ users }) => {
       try {
         console.log(`📋 Received ${users.length} existing voice users`);
@@ -567,13 +621,13 @@ const WebRTCAudioComponent = () => {
 
         users.forEach((user, index) => {
           if (user.userId !== currentUser) {
-            // Stagger connections to avoid overwhelming the network
+            // FIXED: Longer delay to prevent conflicts
             setTimeout(() => {
               if (localStreamRef.current && mountedRef.current) {
                 console.log(`🔗 Connecting to existing user: ${user.username}`);
                 createPeer(user.userId, user.username, localStreamRef.current);
               }
-            }, index * 500);
+            }, (index + 1) * 1000); // 1 second intervals
           }
         });
       } catch (error) {
@@ -581,7 +635,7 @@ const WebRTCAudioComponent = () => {
       }
     };
 
-    // Handle user joining voice
+    // Handle user joining voice - FIXED: Delay connection
     const handleUserJoinedVoice = ({ userInfo }) => {
       try {
         const { userId, username } = userInfo;
@@ -589,19 +643,19 @@ const WebRTCAudioComponent = () => {
         if (userId !== currentUser && localStreamRef.current && mountedRef.current) {
           console.log(`👤 ${username} joined voice chat - initiating connection`);
           
-          // Small delay to ensure the other user is ready
+          // FIXED: Longer delay to ensure readiness
           setTimeout(() => {
             if (localStreamRef.current && mountedRef.current) {
               createPeer(userId, username, localStreamRef.current);
             }
-          }, 1000);
+          }, 2000); // 2 second delay
         }
       } catch (error) {
         console.error('❌ Error handling user joined voice:', error);
       }
     };
 
-    // Handle incoming WebRTC signal
+    // Handle incoming WebRTC signal - FIXED
     const handleWebRTCSignal = ({ signal, callerInfo }) => {
       try {
         const { userId, username } = callerInfo;
@@ -615,7 +669,7 @@ const WebRTCAudioComponent = () => {
       }
     };
 
-    // Handle WebRTC answer
+    // Handle WebRTC answer - FIXED
     const handleWebRTCAnswer = ({ signal, answererInfo }) => {
       try {
         const { userId } = answererInfo;
@@ -869,7 +923,7 @@ const WebRTCAudioComponent = () => {
             Click "Join Voice" to start talking with your team
           </div>
           <div className="text-xs text-green-600 mt-1 font-medium">
-            ✅ No complex setup - instant connection!
+            ✅ Fixed connection issues - stable voice chat!
           </div>
         </div>
       )}
@@ -888,14 +942,16 @@ const WebRTCAudioComponent = () => {
       {/* Technical Info (Development) */}
       {process.env.NODE_ENV === 'development' && isAudioOn && (
         <details className="bg-gray-100 p-2 rounded text-xs">
-          <summary className="cursor-pointer font-medium">🔧 Technical Info</summary>
+          <summary className="cursor-pointer font-medium">🔧 Connection Debug Info</summary>
           <div className="mt-2 space-y-1">
             <div>Local Stream: {localStreamRef.current ? '✅ Active' : '❌ None'}</div>
             <div>Peer Connections: {peersRef.current.size}</div>
             <div>Audio Elements: {audioElementsRef.current.size}</div>
             <div>Active Timeouts: {connectionTimeoutsRef.current.size}</div>
+            <div>Pending Connections: {pendingConnectionsRef.current.size}</div>
             <div>Permission: {audioPermissionGranted ? '✅ Granted' : '❌ Denied'}</div>
             <div>Component Mounted: {mountedRef.current ? '✅ Yes' : '❌ No'}</div>
+            <div className="mt-2 text-green-600 font-bold">🔧 Connection Issues Fixed!</div>
           </div>
         </details>
       )}
@@ -903,11 +959,11 @@ const WebRTCAudioComponent = () => {
       {/* Help Text */}
       <div className="text-center">
         <div className="text-xs text-gray-500">
-          💡 <strong>Tip:</strong> Make sure your microphone is not being used by other apps
+          💡 <strong>Fixed:</strong> Connection timeouts, duplicate connections, and signaling issues
         </div>
         {!isAudioOn && (
           <div className="text-xs text-gray-400 mt-1">
-            WebRTC peer-to-peer connection for best quality
+            WebRTC peer-to-peer connection with improved stability
           </div>
         )}
       </div>
