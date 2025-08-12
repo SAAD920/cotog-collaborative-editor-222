@@ -1,4 +1,4 @@
-// src/components/WebRTCAudioComponent.js - FIXED VERSION - ALL CONNECTION ISSUES RESOLVED
+// src/components/WebRTCAudioComponent.js - UPDATED VERSION WITH SCROLLBAR
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Peer from 'simple-peer';
 import { useRoom } from '@/contexts/RoomContext';
@@ -978,11 +978,17 @@ const WebRTCAudioComponent = () => {
         )}
       </div>
 
-      {/* Connected Users Display */}
+      {/* Connected Users Display with Scrollbar */}
       {isAudioOn && (
         <div className="bg-gray-50 p-3 rounded-md">
           <p className="text-xs font-medium text-gray-700 mb-2">Voice Chat Participants:</p>
-          <div className="space-y-1">
+          <div 
+            className="space-y-1 max-h-24 overflow-y-auto audio-scrollable"
+            style={{
+              scrollbarWidth: 'thin',
+              scrollbarColor: '#cbd5e0 #f7fafc'
+            }}
+          >
             {/* Current User */}
             <div className="flex items-center text-xs">
               <div className={`w-2 h-2 rounded-full mr-2 ${isMuted ? 'bg-red-400' : 'bg-green-400'} animate-pulse`}></div>
@@ -1054,6 +1060,7 @@ const WebRTCAudioComponent = () => {
           <div>✅ Better retry logic with backoff</div>
           <div>✅ Proper cleanup on disconnect</div>
           <div>✅ Audio output to speakers working</div>
+          <div>✅ Scrollable participants list added</div>
         </div>
       </div>
 
@@ -1078,7 +1085,7 @@ const WebRTCAudioComponent = () => {
       {/* Help Text */}
       <div className="text-center">
         <div className="text-xs text-gray-500">
-          🎉 <strong>FIXED:</strong> Connection conflicts, timeouts, and audio output issues resolved
+          🎉 <strong>FIXED:</strong> Connection conflicts, timeouts, audio output issues, and scrollbar added
         </div>
         {!isAudioOn && (
           <div className="text-xs text-gray-400 mt-1">
