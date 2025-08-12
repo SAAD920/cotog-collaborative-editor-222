@@ -1,4 +1,4 @@
-// src/components/EnterRoomCard.js - FIXED VERSION WITH ENHANCED NAVIGATION
+// src/components/EnterRoomCard.js - UPDATED VERSION WITH ENHANCED SECURITY SECTION REMOVED
 import React, { useState } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/contexts/AuthContext';
@@ -284,33 +284,9 @@ const EnterRoomCard = () => {
           Create New Room
         </button>
       </div>
-
-      {/* Enhanced Room ID Format Help */}
-      <div className="mt-4 text-center">
-        <div className="bg-gray-800 p-3 rounded border border-gray-700">
-          <h4 className="text-xs font-semibold text-gray-300 mb-2">💡 Room ID Format:</h4>
-          <div className="text-xs text-gray-400 space-y-1">
-            <p>✅ Valid: <code className="text-green-400">room123, my-room, test_room</code></p>
-            <p>❌ Invalid: <code className="text-red-400">room 123, room@test, [roomId]</code></p>
-            <p>🔒 Case-sensitive, 3-50 characters</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Enhanced Security Notice */}
-      {process.env.NODE_ENV === 'development' && (
-        <div className="mt-4 p-3 bg-yellow-900 border border-yellow-700 rounded">
-          <h4 className="text-xs font-semibold text-yellow-300 mb-2">🔒 Enhanced Security:</h4>
-          <ul className="text-xs text-yellow-200 space-y-1">
-            <li>✅ URL validation and encoding</li>
-            <li>✅ Template literal detection</li>
-            <li>✅ Character validation</li>
-            <li>✅ Secure navigation</li>
-          </ul>
-        </div>
-      )}
     </div>
   );
 };
 
 export default EnterRoomCard;
+

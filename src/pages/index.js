@@ -1,4 +1,4 @@
-// src/pages/index.js - CLEANED VERSION WITH UNUSED CODE REMOVED
+// src/pages/index.js - CLEANED VERSION WITH UPDATED DEMO ACCOUNTS
 import React from 'react';
 import Link from 'next/link';
 import Navbar from '@/components/Navbar';
@@ -47,9 +47,9 @@ const platformFeatures = [
 
 // Demo accounts data to avoid repetition
 const demoAccounts = [
-  { email: 'john.doe@example.com', role: 'Regular User' },
-  { email: 'sarah.wilson@example.com', role: 'Admin' },
-  { email: 'alex.kim@example.com', role: 'Moderator' }
+  { email: 'john.doe@example.com' },
+  { email: 'sarah.wilson@example.com' },
+  { email: 'alex.kim@example.com' }
 ];
 
 const Home = () => {
@@ -202,7 +202,7 @@ const Home = () => {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm text-yellow-700">
               {demoAccounts.map(account => (
                 <div key={account.email}>
-                  <p><strong>{account.role}:</strong> {account.email}</p>
+                  <p><strong>Email:</strong> {account.email}</p>
                 </div>
               ))}
             </div>

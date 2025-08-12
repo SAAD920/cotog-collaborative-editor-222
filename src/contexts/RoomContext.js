@@ -1,4 +1,4 @@
-// src/contexts/RoomContext.js - CLEANED VERSION WITH UNUSED CODE REMOVED
+// src/contexts/RoomContext.js - COMPLETE SIMPLIFIED ROLE SYSTEM
 import React, { createContext, useContext, useReducer, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/contexts/AuthContext';
@@ -6,7 +6,7 @@ import io from 'socket.io-client';
 
 const RoomContext = createContext();
 
-// Room action types - REMOVED: AUDIO_UPDATE, SPEAKING_USERS_UPDATE (unused in favor of WebRTC component state)
+// Room action types - SIMPLIFIED: Removed admin/moderator specific actions
 const ROOM_ACTIONS = {
   CONNECTING: 'CONNECTING',
   CONNECTED: 'CONNECTED',
@@ -23,7 +23,7 @@ const ROOM_ACTIONS = {
   RESET_ROOM: 'RESET_ROOM'
 };
 
-// Initial room state - REMOVED: audio-related state (handled by WebRTC component), activeTab (no tab UI)
+// Initial room state - SIMPLIFIED: Removed admin/moderator state
 const initialState = {
   socket: null,
   isConnected: false,
@@ -33,7 +33,7 @@ const initialState = {
   roomInfo: null,
   users: [],
   currentUser: null,
-  userRole: null,
+  userRole: null, // SIMPLIFIED: Only 'owner' or 'member'
   messages: [],
   typingUsers: [],
   code: '// Welcome to collaborative coding!\n// Start typing to share your code with the team...',
@@ -55,7 +55,7 @@ const roomReducer = (state, action) => {
         roomId: action.payload.roomId,
         roomInfo: action.payload.roomInfo,
         currentUser: action.payload.username,
-        userRole: action.payload.userRole,
+        userRole: action.payload.userRole, // SIMPLIFIED: 'owner' or 'member'
         language: action.payload.roomInfo?.currentLanguage || 'javascript',
         isLoading: false,
         error: null
@@ -172,9 +172,9 @@ export const RoomProvider = ({ children }) => {
     console.log('✅ [CLIENT] Enhanced cleanup completed');
   }, []);
 
-  // Enhanced socket setup with better error handling
+  // Enhanced socket setup with simplified role handling
   const setupSocketHandlers = useCallback((socket, roomId, roomPassword) => {
-    console.log('🔧 [CLIENT] Setting up enhanced socket handlers');
+    console.log('🔧 [CLIENT] Setting up enhanced socket handlers with simplified roles');
 
     socket.removeAllListeners();
 
@@ -233,26 +233,30 @@ export const RoomProvider = ({ children }) => {
       connectionStateRef.current.hasSuccessfulConnection = false;
     });
 
-    // Enhanced room join handling
+    // Enhanced room join handling - SIMPLIFIED ROLES
     socket.on('joinSuccess', (data) => {
-      console.log('✅ [CLIENT] Room join successful:', data);
+      console.log('✅ [CLIENT] Room join successful with simplified roles:', data);
       
       connectionStateRef.current.hasSuccessfulConnection = true;
       connectionStateRef.current.isConnecting = false;
       connectionStateRef.current.reconnectCount = 0;
       
+      // SIMPLIFIED: userRole will be 'owner' or 'member'
       dispatch({
         type: ROOM_ACTIONS.JOINED_ROOM,
         payload: {
           roomId: data.roomId,
-          roomInfo: data.roomInfo,
+          roomInfo: {
+            ...data.roomInfo,
+            simplifiedRoles: true // Add flag to indicate simplified role system
+          },
           username: data.username,
-          userRole: data.userRole
+          userRole: data.userRole // SIMPLIFIED: Only 'owner' or 'member'
         }
       });
     });
 
-    // Enhanced error handling with retry logic
+    // Enhanced error handling with simplified role system
     socket.on('error', (errorData) => {
       console.error('❌ [CLIENT] Socket error:', errorData);
       
@@ -280,13 +284,16 @@ export const RoomProvider = ({ children }) => {
       connectionStateRef.current.hasSuccessfulConnection = false;
     });
 
-    // Room management events
+    // Room management events - SIMPLIFIED
     socket.on('roomUsers', (users) => {
+      // SIMPLIFIED: Users will have 'owner' or 'member' roomRole
+      console.log('👥 [CLIENT] Room users updated with simplified roles:', users);
       dispatch({ type: ROOM_ACTIONS.UPDATE_USERS, payload: { users } });
     });
 
-    // Chat events
+    // Chat events - SIMPLIFIED
     socket.on('message', (message) => {
+      // SIMPLIFIED: Messages will show simplified role indicators
       dispatch({ type: ROOM_ACTIONS.NEW_MESSAGE, payload: { message } });
     });
 
@@ -305,7 +312,7 @@ export const RoomProvider = ({ children }) => {
       });
     });
 
-    // Code editor events
+    // Code editor events - SIMPLIFIED
     socket.on('codeUpdate', (data) => {
       dispatch({
         type: ROOM_ACTIONS.CODE_UPDATE,
@@ -317,7 +324,9 @@ export const RoomProvider = ({ children }) => {
       });
     });
 
+    // SIMPLIFIED: Language updates - Only room owner can change language
     socket.on('languageUpdate', (data) => {
+      console.log('🔧 [CLIENT] Language update from room owner:', data);
       dispatch({
         type: ROOM_ACTIONS.LANGUAGE_UPDATE,
         payload: {
@@ -345,12 +354,12 @@ export const RoomProvider = ({ children }) => {
 
   }, [state.typingUsers]);
 
-  // Completely rewritten join function with advanced deduplication
+  // Enhanced join function with simplified role handling
   const joinRoom = useCallback(async (roomId, roomPassword) => {
     const currentTime = Date.now();
     const attemptId = `${roomId}-${currentTime}-${Math.random().toString(36).substr(2, 9)}`;
     
-    console.log('🎯 [CLIENT] Enhanced join room called:', { 
+    console.log('🎯 [CLIENT] Enhanced join room called with simplified roles:', { 
       roomId, 
       attemptId,
       isAuthenticated, 
@@ -407,7 +416,7 @@ export const RoomProvider = ({ children }) => {
         throw new Error('No authentication token found');
       }
 
-      console.log('🔐 [CLIENT] Creating enhanced socket connection');
+      console.log('🔐 [CLIENT] Creating enhanced socket connection with simplified roles');
 
       const socket = io('https://cotog-backend.onrender.com', {
         auth: { token },
@@ -449,7 +458,7 @@ export const RoomProvider = ({ children }) => {
       socket.connect();
       await connectPromise;
 
-      console.log('✅ [CLIENT] Enhanced socket connection successful');
+      console.log('✅ [CLIENT] Enhanced socket connection successful with simplified roles');
       return true;
 
     } catch (error) {
@@ -499,18 +508,22 @@ export const RoomProvider = ({ children }) => {
     }
   }, [state.isConnected, state.roomId, user]);
 
-  // Send language change
+  // SIMPLIFIED: Send language change - Only room owner can change language
   const sendLanguageChange = useCallback((language, code) => {
     if (!socketRef.current?.connected || !state.isConnected || !state.roomId || !user) {
+      console.log('❌ [CLIENT] Cannot send language change - not connected');
       return false;
     }
 
-    const hasPermission = ['owner', 'moderator'].includes(state.userRole);
-    if (!hasPermission) {
+    // SIMPLIFIED: Only room owner can change language
+    if (state.userRole !== 'owner') {
+      console.log('❌ [CLIENT] Only room creator can change language');
       return false;
     }
 
     try {
+      console.log(`🔧 [CLIENT] Room owner changing language to: ${language}`);
+      
       socketRef.current.emit('languageChange', {
         roomId: state.roomId,
         language,
@@ -518,6 +531,8 @@ export const RoomProvider = ({ children }) => {
         userId: user.id,
         username: user.username
       });
+      
+      console.log('✅ [CLIENT] Language change request sent');
       return true;
     } catch (error) {
       console.error('❌ [CLIENT] Language change error:', error);
@@ -533,6 +548,28 @@ export const RoomProvider = ({ children }) => {
     };
   }, [cleanup]);
 
+  // SIMPLIFIED: Permission helper functions
+  const isRoomOwner = useCallback(() => {
+    return state.userRole === 'owner';
+  }, [state.userRole]);
+
+  // SIMPLIFIED: Removed isRoomModerator - not needed anymore
+  const hasLanguageControl = useCallback(() => {
+    return state.userRole === 'owner'; // Only room owner has language control
+  }, [state.userRole]);
+
+  // Get user role display text - SIMPLIFIED
+  const getUserRoleDisplay = useCallback((role) => {
+    switch (role) {
+      case 'owner':
+        return 'Room Creator';
+      case 'member':
+        return 'Member';
+      default:
+        return 'Member';
+    }
+  }, []);
+
   const value = {
     ...state,
     joinRoom,
@@ -541,9 +578,13 @@ export const RoomProvider = ({ children }) => {
     sendTyping,
     sendCodeChange,
     sendLanguageChange,
-    isRoomOwner: () => state.userRole === 'owner',
-    isRoomModerator: () => ['owner', 'moderator'].includes(state.userRole),
-    getSocket: () => socketRef.current
+    isRoomOwner,
+    hasLanguageControl, // SIMPLIFIED: Only checks for room owner
+    getUserRoleDisplay,
+    getSocket: () => socketRef.current,
+    // SIMPLIFIED: Removed admin/moderator specific functions
+    simplifiedRoles: true, // Flag to indicate simplified role system
+    availableRoles: ['owner', 'member'] // Only two roles now
   };
 
   return (

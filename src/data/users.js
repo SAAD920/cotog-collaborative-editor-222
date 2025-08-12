@@ -1,4 +1,4 @@
-// src/data/users.js
+// src/data/users.js - SIMPLIFIED ROLE SYSTEM (NO ADMIN/MODERATOR)
 const bcrypt = require('bcrypt');
 
 // Pre-hashed passwords for development (all passwords are "password123")
@@ -13,7 +13,7 @@ const users = [
     firstName: 'John',
     lastName: 'Doe',
     avatar: 'https://ui-avatars.com/api/?name=John+Doe&background=0D8ABC&color=fff',
-    role: 'user',
+    role: 'user', // SIMPLIFIED: Only 'user' role
     createdAt: new Date('2024-01-15T10:30:00Z'),
     lastLogin: new Date('2024-07-20T14:22:00Z'),
     isActive: true,
@@ -30,7 +30,7 @@ const users = [
     firstName: 'Sarah',
     lastName: 'Wilson',
     avatar: 'https://ui-avatars.com/api/?name=Sarah+Wilson&background=FF6B6B&color=fff',
-    role: 'admin',
+    role: 'user', // SIMPLIFIED: Changed from 'admin' to 'user'
     createdAt: new Date('2024-01-20T09:15:00Z'),
     lastLogin: new Date('2024-07-22T16:45:00Z'),
     isActive: true,
@@ -81,7 +81,7 @@ const users = [
     firstName: 'Alex',
     lastName: 'Kim',
     avatar: 'https://ui-avatars.com/api/?name=Alex+Kim&background=96CEB4&color=fff',
-    role: 'moderator',
+    role: 'user', // SIMPLIFIED: Changed from 'moderator' to 'user'
     createdAt: new Date('2024-02-15T08:30:00Z'),
     lastLogin: new Date('2024-07-23T09:20:00Z'),
     isActive: true,
@@ -199,7 +199,7 @@ const userService = {
     return users.filter(user => user.isActive);
   },
 
-  // FIXED: Validate user credentials - PROPERLY PLACED IN userService OBJECT
+  // Validate user credentials
   validateCredentials: async (email, password) => {
     const user = userService.findByEmail(email);
     if (!user || !user.isActive) {
@@ -226,7 +226,7 @@ const userService = {
     }
   },
 
-  // Create new user (for signup)
+  // Create new user (for signup) - SIMPLIFIED: Only creates 'user' role
   createUser: async (userData) => {
     const { username, email, password, firstName, lastName } = userData;
     
@@ -238,7 +238,7 @@ const userService = {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
     
-    // Create new user
+    // Create new user - SIMPLIFIED: Always 'user' role
     const newUser = {
       id: Math.max(...users.map(u => u.id)) + 1,
       username: username.toLowerCase(),
@@ -247,7 +247,7 @@ const userService = {
       firstName,
       lastName,
       avatar: `https://ui-avatars.com/api/?name=${firstName}+${lastName}&background=${Math.floor(Math.random()*16777215).toString(16)}&color=fff`,
-      role: 'user',
+      role: 'user', // SIMPLIFIED: Only 'user' role
       createdAt: new Date(),
       lastLogin: null,
       isActive: true,
@@ -282,15 +282,13 @@ const userService = {
     return false;
   },
 
-  // Get user statistics
+  // SIMPLIFIED: Get user statistics (removed admin/moderator counts)
   getUserStats: () => {
     return {
       totalUsers: users.length,
       activeUsers: users.filter(u => u.isActive).length,
       inactiveUsers: users.filter(u => !u.isActive).length,
-      adminUsers: users.filter(u => u.role === 'admin').length,
-      moderatorUsers: users.filter(u => u.role === 'moderator').length,
-      regularUsers: users.filter(u => u.role === 'user').length
+      regularUsers: users.filter(u => u.role === 'user').length // Only regular users now
     };
   }
 };
@@ -301,17 +299,22 @@ module.exports = {
 };
 
 /*
-TEST ACCOUNTS:
+SIMPLIFIED TEST ACCOUNTS:
 All accounts use password: "password123"
 
+
 1. john.doe@example.com (user)
-2. sarah.wilson@example.com (admin)
+2. sarah.wilson@example.com (user) - 
 3. mike.chen@example.com (user)
 4. emma.rodriguez@example.com (user)
-5. alex.kim@example.com (moderator)
+5. alex.kim@example.com (user) - 
 6. lisa.brown@example.com (user)
 7. david.johnson@example.com (user)
 8. maria.garcia@example.com (user)
 9. robert.lee@example.com (inactive user)
 10. jennifer.taylor@example.com (user)
+
+ROOM ROLES:
+- Room Creator (owner): Can change language, has full control
+- Room Member: Can edit code, participate in chat/voice
 */

@@ -1,4 +1,4 @@
-// src/pages/login.js - CLEANED VERSION WITH UNUSED CODE REMOVED
+// src/pages/login.js - CLEANED VERSION WITH UPDATED DEMO ACCOUNTS
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
@@ -133,21 +133,21 @@ const LoginPage = () => {
                 disabled={isLoading}
                 className="w-full text-left text-xs text-blue-700 hover:text-blue-900 hover:bg-blue-100 p-2 rounded transition-colors disabled:opacity-50"
               >
-                <strong>👤 Regular User:</strong> john.doe@example.com
+                john.doe@example.com
               </button>
               <button
                 onClick={() => quickLogin('sarah.wilson@example.com')}
                 disabled={isLoading}
                 className="w-full text-left text-xs text-blue-700 hover:text-blue-900 hover:bg-blue-100 p-2 rounded transition-colors disabled:opacity-50"
               >
-                <strong>👑 Admin:</strong> sarah.wilson@example.com
+                sarah.wilson@example.com
               </button>
               <button
                 onClick={() => quickLogin('alex.kim@example.com')}
                 disabled={isLoading}
                 className="w-full text-left text-xs text-blue-700 hover:text-blue-900 hover:bg-blue-100 p-2 rounded transition-colors disabled:opacity-50"
               >
-                <strong>🛡️ Moderator:</strong> alex.kim@example.com
+                alex.kim@example.com
               </button>
               <p className="text-xs text-blue-600 mt-2">
                 <strong>Password for all accounts:</strong> password123

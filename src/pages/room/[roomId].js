@@ -1,4 +1,4 @@
-// src/pages/room/[roomId].js - CLEANED VERSION WITH UNUSED CODE REMOVED
+// src/pages/room/[roomId].js - SIMPLIFIED ROLE SYSTEM
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import Navbar from '@/components/Navbar';
@@ -23,7 +23,7 @@ const RoomContent = () => {
     joinRoom, 
     leaveRoom,
     currentUser,
-    userRole
+    userRole // SIMPLIFIED: Will be 'owner' or 'member'
   } = useRoom();
 
   const [hasAttemptedJoin, setHasAttemptedJoin] = useState(false);
@@ -146,6 +146,28 @@ const RoomContent = () => {
     );
   }
 
+  // Get role display text - SIMPLIFIED
+  const getRoleDisplayText = (role) => {
+    switch (role) {
+      case 'owner':
+        return 'Room Creator';
+      case 'member':
+        return 'Member';
+      default:
+        return 'Member';
+    }
+  };
+
+  // Get role icon - SIMPLIFIED
+  const getRoleIcon = (role) => {
+    switch (role) {
+      case 'owner':
+        return '👑';
+      default:
+        return '👤';
+    }
+  };
+
   // Main room interface
   return (
     <div className="min-h-screen bg-gray-100 room-page">
@@ -159,8 +181,8 @@ const RoomContent = () => {
               <div>
                 <h1 className="text-2xl font-bold text-gray-800 flex items-center">
                   {roomInfo?.roomName || `Room ${roomId}`}
+                  {/* SIMPLIFIED: Only show crown for room creator */}
                   {userRole === 'owner' && <span className="ml-2 text-lg">👑</span>}
-                  {userRole === 'moderator' && <span className="ml-2 text-lg">🛡️</span>}
                 </h1>
                 <div className="flex items-center space-x-4 text-sm text-gray-600">
                   <span className="flex items-center">
@@ -182,6 +204,10 @@ const RoomContent = () => {
                       <span>👤 Created by {roomInfo.createdBy}</span>
                       {roomInfo.isPrivate && <span>🔒 Private</span>}
                       <span>🎙️ Voice Chat Ready</span>
+                      {/* SIMPLIFIED: Show role system status */}
+                      <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs">
+                        🔧 Simplified Roles
+                      </span>
                     </>
                   )}
                 </div>
@@ -189,6 +215,13 @@ const RoomContent = () => {
             </div>
             
             <div className="flex items-center space-x-3">
+              {/* User Role Display - SIMPLIFIED */}
+              <div className="text-sm bg-blue-50 border border-blue-200 px-3 py-1 rounded-full">
+                <span className="text-blue-800 font-medium">
+                  {getRoleIcon(userRole)} {getRoleDisplayText(userRole)}
+                </span>
+              </div>
+              
               <div className="text-sm text-gray-500 bg-gray-100 px-3 py-1 rounded-full">
                 Room ID: <code className="font-mono font-semibold">{roomId}</code>
               </div>
@@ -209,6 +242,23 @@ const RoomContent = () => {
               </p>
             </div>
           )}
+
+          {/* Simplified Role System Info */}
+          <div className="mt-3 p-3 bg-green-50 rounded-lg border border-green-200">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-green-800">
+                <span className="font-semibold">🔧 Simplified Role System:</span>
+                {userRole === 'owner' ? (
+                  ' You created this room and can control the programming language.'
+                ) : (
+                  ' All users can code and chat. Only the room creator can change the language.'
+                )}
+              </div>
+              <span className="text-xs bg-green-200 text-green-800 px-2 py-1 rounded-full">
+                ✅ No Admin/Moderator Complexity
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -260,7 +310,11 @@ const RoomContent = () => {
               </span>
               <span className="text-sm">Room: <code className="bg-gray-700 px-1 rounded">{roomId}</code></span>
               <span className="text-sm hidden md:inline">User: <span className="font-medium">{currentUser}</span></span>
-              <span className="text-sm hidden lg:inline">Role: <span className="capitalize font-medium">{userRole}</span></span>
+              <span className="text-sm hidden lg:inline">
+                Role: <span className="capitalize font-medium">
+                  {getRoleIcon(userRole)} {getRoleDisplayText(userRole)}
+                </span>
+              </span>
             </div>
             
             <div className="flex items-center space-x-4">
@@ -270,6 +324,11 @@ const RoomContent = () => {
                   {roomInfo.maxUsers} max
                 </span>
               )}
+              
+              {/* Simplified Role System Indicator */}
+              <span className="text-xs bg-green-600 px-2 py-1 rounded-full hidden md:inline">
+                🔧 Simplified
+              </span>
               
               <div className="flex items-center space-x-2">
                 <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`} 
@@ -294,11 +353,14 @@ const RoomContent = () => {
                   <span>📝 {roomInfo.roomName}</span>
                   {roomInfo.isPrivate && <span>🔒 Private</span>}
                   <span>🎙️ Voice Ready</span>
+                  <span>
+                    🔧 Role: {userRole === 'owner' ? 'Creator (can change language)' : 'Member (equal access)'}
+                  </span>
                 </>
               )}
             </div>
             <div className="flex items-center space-x-2 text-xs">
-              <span>Server: cotog-backend.onrender.com</span>
+              <span>Server: cotog-backend.onrender.com v5.0.0</span>
               <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`}></div>
             </div>
           </div>

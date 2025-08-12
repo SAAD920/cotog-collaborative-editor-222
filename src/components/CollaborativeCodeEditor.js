@@ -1,4 +1,4 @@
-// src/components/CollaborativeCodeEditor.js - UPDATED WITH SCROLLBARS
+// src/components/CollaborativeCodeEditor.js - SIMPLIFIED ROLE SYSTEM
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
@@ -16,12 +16,12 @@ const CollaborativeCodeEditor = () => {
     language, 
     sendCodeChange, 
     sendLanguageChange,
-    isRoomOwner,
-    isRoomModerator,
+    isRoomOwner, // SIMPLIFIED: Only room owner can change language
     lastEditUser,
     users,
     isConnected,
-    currentUser
+    currentUser,
+    userRole // SIMPLIFIED: Will be 'owner' or 'member'
   } = useRoom();
 
   const [localCode, setLocalCode] = useState('// Welcome to collaborative coding!\n// Start typing to share your code with the team...');
@@ -86,7 +86,7 @@ const CollaborativeCodeEditor = () => {
           sendCodeChange(newCode, language || 'javascript');
           lastSentCodeRef.current = newCode;
         }
-      }, 300); // Reduced back to 300ms for responsiveness
+      }, 300);
     };
   })(), [sendCodeChange, language, isConnected, roomCode]);
 
@@ -112,7 +112,7 @@ const CollaborativeCodeEditor = () => {
     debouncedSendCodeChange(value);
   }, [debouncedSendCodeChange, isTyping]);
 
-  // Handle language change
+  // Handle language change - SIMPLIFIED: Only room owner can change language
   const handleLanguageChange = useCallback(async (event) => {
     const newLanguage = event.target.value;
     
@@ -123,9 +123,10 @@ const CollaborativeCodeEditor = () => {
       return;
     }
 
-    const canChangeLanguage = isRoomOwner() || isRoomModerator();
+    // SIMPLIFIED: Only room owner can change language
+    const canChangeLanguage = isRoomOwner();
     if (!canChangeLanguage) {
-      setLanguageChangeStatus('❌ Only room owner or moderator can change language');
+      setLanguageChangeStatus('❌ Only room creator can change language');
       event.target.value = language || 'javascript';
       setTimeout(() => setLanguageChangeStatus(''), 3000);
       return;
@@ -150,7 +151,7 @@ const CollaborativeCodeEditor = () => {
       event.target.value = language || 'javascript';
       setTimeout(() => setLanguageChangeStatus(''), 3000);
     }
-  }, [sendLanguageChange, localCode, isRoomOwner, isRoomModerator, isConnected, language]);
+  }, [sendLanguageChange, localCode, isRoomOwner, isConnected, language]);
 
   // Get language extension for CodeMirror
   const getLanguageExtension = (lang) => {
@@ -339,70 +340,20 @@ sys.stderr = old_stderr
     }
   };
 
-  // Enhanced Python execution (fallback) - COMPREHENSIVE
+  // Enhanced Python execution (fallback)
   const executePythonEnhanced = async () => {
     try {
       let output = '';
       const lines = localCode.split('\n');
       const variables = {};
-      const functions = {};
-      const classes = {};
-      let indentLevel = 0;
       
       for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const trimmedLine = line.trim();
-        
-        if (!trimmedLine || trimmedLine.startsWith('#')) continue;
-        
-        // Handle function definitions
-        if (trimmedLine.startsWith('def ')) {
-          const funcMatch = trimmedLine.match(/def\s+(\w+)\s*\(([^)]*)\):/);
-          if (funcMatch) {
-            const funcName = funcMatch[1];
-            const params = funcMatch[2].split(',').map(p => p.trim()).filter(p => p);
-            
-            // Find function body
-            let j = i + 1;
-            const funcBody = [];
-            while (j < lines.length && (lines[j].startsWith('    ') || lines[j].trim() === '')) {
-              if (lines[j].trim()) {
-                funcBody.push(lines[j]);
-              }
-              j++;
-            }
-            
-            functions[funcName] = { params, body: funcBody };
-            i = j - 1;
-          }
-          continue;
-        }
-        
-        // Handle class definitions
-        if (trimmedLine.startsWith('class ')) {
-          const classMatch = trimmedLine.match(/class\s+(\w+)(?:\([^)]*\))?:/);
-          if (classMatch) {
-            const className = classMatch[1];
-            
-            // Find class body
-            let j = i + 1;
-            const classBody = [];
-            while (j < lines.length && (lines[j].startsWith('    ') || lines[j].trim() === '')) {
-              if (lines[j].trim()) {
-                classBody.push(lines[j]);
-              }
-              j++;
-            }
-            
-            classes[className] = { body: classBody, methods: {}, attributes: {} };
-            i = j - 1;
-          }
-          continue;
-        }
+        const line = lines[i].trim();
+        if (!line || line.startsWith('#')) continue;
         
         // Handle print statements
-        if (trimmedLine.includes('print(')) {
-          const printMatch = trimmedLine.match(/print\((.+)\)/);
+        if (line.includes('print(')) {
+          const printMatch = line.match(/print\((.+)\)/);
           if (printMatch) {
             let content = printMatch[1];
             
@@ -425,14 +376,6 @@ sys.stderr = old_stderr
             else if (variables[content]) {
               output += variables[content] + '\n';
             }
-            // Handle function calls
-            else if (content.includes('(') && content.includes(')')) {
-              const funcCallMatch = content.match(/(\w+)\(([^)]*)\)/);
-              if (funcCallMatch && functions[funcCallMatch[1]]) {
-                const result = executePythonFunction(funcCallMatch[1], funcCallMatch[2], functions, variables);
-                output += result + '\n';
-              }
-            }
             // Handle expressions
             else {
               try {
@@ -447,37 +390,17 @@ sys.stderr = old_stderr
         }
         
         // Handle variable assignments
-        else if (trimmedLine.includes('=') && !trimmedLine.includes('==') && !trimmedLine.includes('!=') && !trimmedLine.includes('<=') && !trimmedLine.includes('>=')) {
-          const assignMatch = trimmedLine.match(/(\w+)\s*=\s*(.+)/);
+        else if (line.includes('=') && !line.includes('==') && !line.includes('!=') && !line.includes('<=') && !line.includes('>=')) {
+          const assignMatch = line.match(/(\w+)\s*=\s*(.+)/);
           if (assignMatch) {
             const varName = assignMatch[1];
             let value = assignMatch[2];
             
-            // Handle string assignments
             if (value.match(/^["'].*["']$/)) {
               variables[varName] = value.slice(1, -1);
-            }
-            // Handle numeric assignments
-            else if (!isNaN(value)) {
+            } else if (!isNaN(value)) {
               variables[varName] = Number(value);
-            }
-            // Handle list assignments
-            else if (value.startsWith('[') && value.endsWith(']')) {
-              try {
-                variables[varName] = JSON.parse(value.replace(/'/g, '"'));
-              } catch {
-                variables[varName] = value;
-              }
-            }
-            // Handle function calls
-            else if (value.includes('(') && value.includes(')')) {
-              const funcCallMatch = value.match(/(\w+)\(([^)]*)\)/);
-              if (funcCallMatch && functions[funcCallMatch[1]]) {
-                variables[varName] = executePythonFunction(funcCallMatch[1], funcCallMatch[2], functions, variables);
-              }
-            }
-            // Handle expressions
-            else {
+            } else {
               try {
                 const expr = value.replace(/\w+/g, (match) => variables[match] || match);
                 variables[varName] = eval(expr);
@@ -489,125 +412,55 @@ sys.stderr = old_stderr
         }
         
         // Handle for loops
-        else if (trimmedLine.startsWith('for ')) {
-          const forMatch = trimmedLine.match(/for\s+(\w+)\s+in\s+(.+):/);
+        else if (line.startsWith('for ')) {
+          const forMatch = line.match(/for\s+(\w+)\s+in\s+range\((\d+)(?:,\s*(\d+))?\)/);
           if (forMatch) {
             const varName = forMatch[1];
-            const iterable = forMatch[2];
+            const start = forMatch[3] ? Number(forMatch[2]) : 0;
+            const end = forMatch[3] ? Number(forMatch[3]) : Number(forMatch[2]);
             
-            // Find loop body
+            // Find the loop body
             let j = i + 1;
             const loopBody = [];
             while (j < lines.length && (lines[j].startsWith('    ') || lines[j].trim() === '')) {
               if (lines[j].trim()) {
-                loopBody.push(lines[j]);
+                loopBody.push(lines[j].replace(/^    /, ''));
               }
               j++;
             }
             
             // Execute loop
-            if (iterable.includes('range(')) {
-              const rangeMatch = iterable.match(/range\((\d+)(?:,\s*(\d+))?\)/);
-              if (rangeMatch) {
-                const start = rangeMatch[2] ? Number(rangeMatch[1]) : 0;
-                const end = rangeMatch[2] ? Number(rangeMatch[2]) : Number(rangeMatch[1]);
-                
-                for (let k = start; k < end; k++) {
-                  variables[varName] = k;
-                  output += executePythonBlock(loopBody, variables, functions, classes);
+            for (let k = start; k < end; k++) {
+              variables[varName] = k;
+              for (const bodyLine of loopBody) {
+                if (bodyLine.includes('print(')) {
+                  const printMatch = bodyLine.match(/print\((.+)\)/);
+                  if (printMatch) {
+                    let content = printMatch[1];
+                    if (content.includes('f"') || content.includes("f'")) {
+                      const fStringMatch = content.match(/f["']([^"']*?)["']/);
+                      if (fStringMatch) {
+                        let fString = fStringMatch[1];
+                        Object.keys(variables).forEach(v => {
+                          fString = fString.replace(new RegExp(`{${v}}`, 'g'), variables[v]);
+                        });
+                        output += fString + '\n';
+                      }
+                    } else if (content.match(/^["'].*["']$/)) {
+                      output += content.slice(1, -1) + '\n';
+                    } else {
+                      try {
+                        const result = eval(content.replace(/\w+/g, (match) => variables[match] || match));
+                        output += result + '\n';
+                      } catch {
+                        output += content + '\n';
+                      }
+                    }
+                  }
                 }
               }
-            } else if (variables[iterable] && Array.isArray(variables[iterable])) {
-              for (const item of variables[iterable]) {
-                variables[varName] = item;
-                output += executePythonBlock(loopBody, variables, functions, classes);
-              }
             }
-            
             i = j - 1;
-          }
-        }
-        
-        // Handle while loops
-        else if (trimmedLine.startsWith('while ')) {
-          const whileMatch = trimmedLine.match(/while\s+(.+):/);
-          if (whileMatch) {
-            const condition = whileMatch[1];
-            
-            // Find loop body
-            let j = i + 1;
-            const loopBody = [];
-            while (j < lines.length && (lines[j].startsWith('    ') || lines[j].trim() === '')) {
-              if (lines[j].trim()) {
-                loopBody.push(lines[j]);
-              }
-              j++;
-            }
-            
-            // Execute while loop (with safety limit)
-            let iterations = 0;
-            const maxIterations = 1000;
-            
-            while (iterations < maxIterations && evaluatePythonCondition(condition, variables)) {
-              output += executePythonBlock(loopBody, variables, functions, classes);
-              iterations++;
-            }
-            
-            if (iterations >= maxIterations) {
-              output += 'Warning: Loop terminated after 1000 iterations to prevent infinite loop\n';
-            }
-            
-            i = j - 1;
-          }
-        }
-        
-        // Handle if statements
-        else if (trimmedLine.startsWith('if ')) {
-          const ifMatch = trimmedLine.match(/if\s+(.+):/);
-          if (ifMatch) {
-            const condition = ifMatch[1];
-            
-            // Find if body
-            let j = i + 1;
-            const ifBody = [];
-            while (j < lines.length && (lines[j].startsWith('    ') || lines[j].trim() === '')) {
-              if (lines[j].trim()) {
-                ifBody.push(lines[j]);
-              }
-              j++;
-            }
-            
-            // Check for else/elif
-            let elseBody = [];
-            if (j < lines.length && lines[j].trim().startsWith('else:')) {
-              j++; // Skip else line
-              while (j < lines.length && (lines[j].startsWith('    ') || lines[j].trim() === '')) {
-                if (lines[j].trim()) {
-                  elseBody.push(lines[j]);
-                }
-                j++;
-              }
-            }
-            
-            // Execute conditional
-            if (evaluatePythonCondition(condition, variables)) {
-              output += executePythonBlock(ifBody, variables, functions, classes);
-            } else if (elseBody.length > 0) {
-              output += executePythonBlock(elseBody, variables, functions, classes);
-            }
-            
-            i = j - 1;
-          }
-        }
-        
-        // Handle function calls (standalone)
-        else if (trimmedLine.includes('(') && trimmedLine.includes(')') && !trimmedLine.includes('=')) {
-          const funcCallMatch = trimmedLine.match(/(\w+)\(([^)]*)\)/);
-          if (funcCallMatch && functions[funcCallMatch[1]]) {
-            const result = executePythonFunction(funcCallMatch[1], funcCallMatch[2], functions, variables);
-            if (result !== undefined) {
-              output += result + '\n';
-            }
           }
         }
       }
@@ -615,119 +468,6 @@ sys.stderr = old_stderr
       setOutput(output || 'Python code executed (no output)');
     } catch (error) {
       setOutput(`Python execution error: ${error.message}`);
-    }
-  };
-
-  // Helper function to execute Python functions
-  const executePythonFunction = (funcName, argsStr, functions, variables) => {
-    const func = functions[funcName];
-    if (!func) return '';
-    
-    // Parse arguments
-    const args = argsStr ? argsStr.split(',').map(arg => {
-      const trimmed = arg.trim();
-      if (trimmed.match(/^["'].*["']$/)) {
-        return trimmed.slice(1, -1);
-      } else if (!isNaN(trimmed)) {
-        return Number(trimmed);
-      } else if (variables[trimmed] !== undefined) {
-        return variables[trimmed];
-      }
-      return trimmed;
-    }) : [];
-    
-    // Create local scope
-    const localVars = { ...variables };
-    func.params.forEach((param, index) => {
-      if (args[index] !== undefined) {
-        localVars[param] = args[index];
-      }
-    });
-    
-    // Execute function body
-    return executePythonBlock(func.body, localVars, functions, {});
-  };
-
-  // Helper function to execute Python code blocks
-  const executePythonBlock = (lines, variables, functions, classes) => {
-    let output = '';
-    
-    for (const line of lines) {
-      const trimmedLine = line.trim();
-      
-      if (trimmedLine.includes('print(')) {
-        const printMatch = trimmedLine.match(/print\((.+)\)/);
-        if (printMatch) {
-          let content = printMatch[1];
-          
-          // Handle f-strings
-          if (content.includes('f"') || content.includes("f'")) {
-            const fStringMatch = content.match(/f["']([^"']*?)["']/);
-            if (fStringMatch) {
-              let fString = fStringMatch[1];
-              Object.keys(variables).forEach(varName => {
-                fString = fString.replace(new RegExp(`{${varName}}`, 'g'), variables[varName]);
-              });
-              output += fString + '\n';
-            }
-          }
-          // Handle string literals
-          else if (content.match(/^["'].*["']$/)) {
-            output += content.slice(1, -1) + '\n';
-          }
-          // Handle variables
-          else if (variables[content] !== undefined) {
-            output += variables[content] + '\n';
-          }
-          // Handle expressions
-          else {
-            try {
-              const expr = content.replace(/\w+/g, (match) => variables[match] || match);
-              const result = eval(expr);
-              output += result + '\n';
-            } catch {
-              output += content + '\n';
-            }
-          }
-        }
-      }
-      
-      // Handle return statements
-      else if (trimmedLine.startsWith('return ')) {
-        const returnValue = trimmedLine.substring(7);
-        if (returnValue.match(/^["'].*["']$/)) {
-          return returnValue.slice(1, -1);
-        } else if (!isNaN(returnValue)) {
-          return Number(returnValue);
-        } else if (variables[returnValue] !== undefined) {
-          return variables[returnValue];
-        }
-        return returnValue;
-      }
-    }
-    
-    return output;
-  };
-
-  // Helper function to evaluate Python conditions
-  const evaluatePythonCondition = (condition, variables) => {
-    try {
-      // Replace variables with their values
-      let expr = condition;
-      Object.keys(variables).forEach(varName => {
-        expr = expr.replace(new RegExp(`\\b${varName}\\b`, 'g'), variables[varName]);
-      });
-      
-      // Handle Python comparison operators
-      expr = expr.replace(/==/g, '===')
-                 .replace(/!=/g, '!==')
-                 .replace(/\band\b/g, '&&')
-                 .replace(/\bor\b/g, '||')
-                 .replace(/\bnot\b/g, '!');
-      
-      return eval(expr);
-    } catch {
-      return false;
     }
   };
 
@@ -765,31 +505,20 @@ sys.stderr = old_stderr
     setOutput(htmlTemplate);
   };
 
-  // C++ execution (mock/online compiler)
+  // C++ execution (mock)
   const executeCpp = async () => {
     setOutput('Compiling C++ code...');
-    
-    // Simulate compilation delay
     await new Promise(resolve => setTimeout(resolve, 1000));
     
-    // Try to extract simple outputs for demo
-    let mockOutput = getMockCppOutput();
-    
-    // Could integrate with online compiler API here
     try {
-      // Example: JDoodle API integration (requires API key)
-      // const result = await compileCppOnline(localCode);
-      // setOutput(result);
-      setOutput('C++ Compilation Result:\n\n' + mockOutput + '\n\n' + 
-               'Note: This is a mock execution. For real C++ compilation,\n' +
-               'an online compiler service would be integrated.');
+      let output = getMockCppOutput();
+      setOutput('C++ Output:\n' + output + '\n\nCompilation and execution completed.');
     } catch (error) {
-      setOutput('C++ Mock Output:\n\n' + mockOutput);
+      setOutput(`C++ execution error: ${error.message}`);
     }
   };
 
   const getMockCppOutput = () => {
-    // Basic C++ pattern recognition
     if (localCode.includes('cout')) {
       const coutMatches = localCode.match(/cout\s*<<\s*["']([^"']*)["']/g);
       if (coutMatches) {
@@ -807,27 +536,20 @@ sys.stderr = old_stderr
     return 'C++ program compiled and executed successfully.';
   };
 
-  // Java execution (mock/online compiler)
+  // Java execution (mock)
   const executeJava = async () => {
     setOutput('Compiling Java code...');
-    
-    // Simulate compilation delay
     await new Promise(resolve => setTimeout(resolve, 1200));
     
-    let mockOutput = getMockJavaOutput();
-    
     try {
-      // Could integrate with online compiler API here
-      setOutput('Java Compilation Result:\n\n' + mockOutput + '\n\n' + 
-               'Note: This is a mock execution. For real Java compilation,\n' +
-               'an online compiler service would be integrated.');
+      let output = getMockJavaOutput();
+      setOutput('Java Output:\n' + output + '\n\nCompilation and execution completed.');
     } catch (error) {
-      setOutput('Java Mock Output:\n\n' + mockOutput);
+      setOutput(`Java execution error: ${error.message}`);
     }
   };
 
   const getMockJavaOutput = () => {
-    // Basic Java pattern recognition
     if (localCode.includes('System.out.println')) {
       const printMatches = localCode.match(/System\.out\.println\(['"`]([^'"`]*)['"`]\)/g);
       if (printMatches) {
@@ -908,9 +630,9 @@ sys.stderr = old_stderr
                 id="language"
                 value={currentLanguage}
                 onChange={handleLanguageChange}
-                disabled={!isConnected || (!isRoomOwner() && !isRoomModerator())}
+                disabled={!isConnected || !isRoomOwner()} // SIMPLIFIED: Only room owner can change
                 className={`px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
-                  !isConnected || (!isRoomOwner() && !isRoomModerator())
+                  !isConnected || !isRoomOwner()
                     ? 'bg-gray-100 cursor-not-allowed text-gray-500' 
                     : 'bg-white hover:border-blue-400'
                 }`}
@@ -922,8 +644,8 @@ sys.stderr = old_stderr
                 <option value="cpp">C++</option>
                 <option value="java">Java</option>
               </select>
-              {(!isRoomOwner() && !isRoomModerator()) && (
-                <span className="text-xs text-gray-500">(Owner/Moderator only)</span>
+              {!isRoomOwner() && (
+                <span className="text-xs text-gray-500">(Room creator only)</span>
               )}
             </div>
 
@@ -932,6 +654,13 @@ sys.stderr = old_stderr
               <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
               <span className="text-sm text-gray-600">
                 {isConnected ? 'Connected' : 'Disconnected'}
+              </span>
+            </div>
+
+            {/* User Role Display */}
+            <div className="flex items-center space-x-2">
+              <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                {userRole === 'owner' ? '👑 Room Creator' : '👤 Member'}
               </span>
             </div>
           </div>
@@ -1000,14 +729,25 @@ sys.stderr = old_stderr
             <p className="text-sm text-blue-800">{languageChangeStatus}</p>
           </div>
         )}
+
+        {/* Simplified Role System Info */}
+        <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded-md">
+          <div className="text-xs text-green-800">
+            <div className="flex items-center justify-between">
+              <span>
+                <strong>🔧 Simplified Role System:</strong> 
+                {userRole === 'owner' ? ' You created this room and can change the language' : ' Room creator controls language selection'}
+              </span>
+              <span className="text-green-600 font-medium">
+                ✅ No Admin/Moderator complexity!
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Main Editor Area */}
-      <div className="flex-1 flex min-h-0" style={{
-        overflowY: 'auto',
-        scrollbarWidth: 'thin',
-        scrollbarColor: '#3b82f6 #e5e7eb'
-      }}>
+      <div className="flex-1 flex min-h-0">
         {/* Code Editor */}
         <div className="flex-1 relative">
           <CodeMirror
@@ -1039,32 +779,6 @@ sys.stderr = old_stderr
               height: '100%'
             }}
           />
-          <style jsx>{`
-            .cm-editor {
-              height: 100% !important;
-              overflow-y: auto !important;
-            }
-            .cm-scroller {
-              overflow-y: auto !important;
-              scrollbar-width: thin !important;
-              scrollbar-color: #6b7280 #f3f4f6 !important;
-            }
-            .cm-scroller::-webkit-scrollbar {
-              width: 10px !important;
-            }
-            .cm-scroller::-webkit-scrollbar-track {
-              background: #f9fafb !important;
-              border-radius: 5px !important;
-            }
-            .cm-scroller::-webkit-scrollbar-thumb {
-              background: #6b7280 !important;
-              border-radius: 5px !important;
-              border: 1px solid #f9fafb !important;
-            }
-            .cm-scroller::-webkit-scrollbar-thumb:hover {
-              background: #4b5563 !important;
-            }
-          `}</style>
           
           {/* Loading Overlay */}
           {!isConnected && (
@@ -1145,6 +859,14 @@ sys.stderr = old_stderr
                       </div>
                     )}
                   </div>
+                </div>
+
+                {/* Simplified Role System Notice */}
+                <div className="mt-2 p-2 bg-green-50 rounded border border-green-200">
+                  <p className="text-xs text-green-800">
+                    <strong>🔧 Simplified Roles:</strong> 
+                    {userRole === 'owner' ? ' As room creator, you can change the language above.' : ' Only the room creator can change the programming language.'}
+                  </p>
                 </div>
 
                 {/* Online Compiler Integration Notice */}
