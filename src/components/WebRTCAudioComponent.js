@@ -1,4 +1,4 @@
-// src/components/WebRTCAudioComponent.js - UPDATED VERSION WITH SCROLLBAR
+// src/components/WebRTCAudioComponent.js - FIXED CONNECTION LOGIC
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Peer from 'simple-peer';
 import { useRoom } from '@/contexts/RoomContext';
@@ -25,7 +25,13 @@ const WebRTCAudioComponent = () => {
   const activeConnectionsRef = useRef(new Set()); // Track active connections
   const connectionAttemptsRef = useRef(new Map()); // userId -> timestamp of last attempt
 
-  const { getSocket, isConnected: roomConnected, currentUser, roomId } = useRoom();
+  const { getSocket, isConnected: roomConnected, currentUser, roomId, users } = useRoom();
+
+  // CRITICAL FIX: Get current user ID from room users list
+  const getCurrentUserId = useCallback(() => {
+    const currentUserData = users.find(u => u.username === currentUser);
+    return currentUserData ? currentUserData.userId : currentUser;
+  }, [users, currentUser]);
 
   // ICE server configuration for better connectivity
   const iceServers = [
@@ -140,14 +146,22 @@ const WebRTCAudioComponent = () => {
     }
   }, []);
 
-  // STEP 3: CRITICAL FIX - Enhanced peer creation with conflict resolution
+  // STEP 3: CRITICAL FIX - Enhanced peer creation with FIXED conflict resolution
   const createPeer = useCallback((targetUserId, targetUsername, localStream) => {
     try {
-      // CRITICAL FIX: Implement connection conflict resolution
-      const shouldInitiate = parseInt(currentUser) > parseInt(targetUserId);
+      const currentUserId = getCurrentUserId();
+      
+      // CRITICAL FIX: Proper numeric comparison for connection conflict resolution
+      const currentUserIdNum = parseInt(currentUserId);
+      const targetUserIdNum = parseInt(targetUserId);
+      
+      console.log(`🔍 Connection logic check: currentUserId=${currentUserIdNum}, targetUserId=${targetUserIdNum}`);
+      
+      // CRITICAL FIX: Use proper numeric comparison - higher ID initiates
+      const shouldInitiate = currentUserIdNum > targetUserIdNum;
       
       if (!shouldInitiate) {
-        console.log(`⏳ Not initiating to ${targetUsername} - waiting for them to initiate (higher user ID)`);
+        console.log(`⏳ Not initiating to ${targetUsername} (${targetUserIdNum}) - waiting for them to initiate (I have ID ${currentUserIdNum})`);
         return null;
       }
 
@@ -160,7 +174,7 @@ const WebRTCAudioComponent = () => {
       }
 
       // CRITICAL FIX: Check for existing active connections
-      const connectionKey = `${currentUser}-${targetUserId}`;
+      const connectionKey = `${currentUserId}-${targetUserId}`;
       if (activeConnectionsRef.current.has(connectionKey) || pendingConnectionsRef.current.has(connectionKey)) {
         console.log(`⚠️ Connection already exists or pending to ${targetUsername}, skipping`);
         return null;
@@ -175,7 +189,7 @@ const WebRTCAudioComponent = () => {
         }
       }
 
-      console.log(`📞 Creating outgoing peer connection to ${targetUsername} (${targetUserId})`);
+      console.log(`📞 Creating outgoing peer connection to ${targetUsername} (${targetUserId}) - I have higher ID (${currentUserIdNum} > ${targetUserIdNum})`);
       
       // Mark connection as pending and record attempt
       pendingConnectionsRef.current.add(connectionKey);
@@ -235,7 +249,7 @@ const WebRTCAudioComponent = () => {
               targetUserId,
               signal,
               callerInfo: {
-                userId: currentUser,
+                userId: currentUserId,
                 username: currentUser
               },
               roomId
@@ -312,24 +326,34 @@ const WebRTCAudioComponent = () => {
       setConnectionError(`Failed to create connection: ${error.message}`);
       return null;
     }
-  }, [getSocket, roomId, currentUser, createAudioElement]);
+  }, [getSocket, roomId, currentUser, createAudioElement, getCurrentUserId]);
 
-  // STEP 4: CRITICAL FIX - Enhanced incoming call handling
+  // STEP 4: CRITICAL FIX - Enhanced incoming call handling with FIXED conflict resolution
   const handleIncomingCall = useCallback((signal, callerInfo, localStream) => {
     try {
       const { userId: callerUserId, username: callerUsername } = callerInfo;
+      const currentUserId = getCurrentUserId();
+      
       console.log(`📞 Handling incoming call from ${callerUsername} (${callerUserId})`);
 
-      // CRITICAL FIX: Conflict resolution - only accept if we should not initiate
-      const shouldInitiate = parseInt(currentUser) > parseInt(callerUserId);
+      // CRITICAL FIX: Proper numeric comparison for conflict resolution
+      const currentUserIdNum = parseInt(currentUserId);
+      const callerUserIdNum = parseInt(callerUserId);
+      
+      console.log(`🔍 Incoming call logic: currentUserId=${currentUserIdNum}, callerUserId=${callerUserIdNum}`);
+      
+      // CRITICAL FIX: Use proper numeric comparison - only accept if we should not initiate
+      const shouldInitiate = currentUserIdNum > callerUserIdNum;
       
       if (shouldInitiate) {
-        console.log(`🔄 Conflict resolution - I should initiate to ${callerUsername}, ignoring incoming call`);
+        console.log(`🔄 Conflict resolution - I should initiate to ${callerUsername} (${currentUserIdNum} > ${callerUserIdNum}), ignoring incoming call`);
         return;
       }
 
+      console.log(`✅ Accepting incoming call from ${callerUsername} (${callerUserIdNum} > ${currentUserIdNum})`);
+
       // CRITICAL FIX: Check for existing connections
-      const connectionKey = `${callerUserId}-${currentUser}`;
+      const connectionKey = `${callerUserId}-${currentUserId}`;
       if (activeConnectionsRef.current.has(connectionKey) || pendingConnectionsRef.current.has(connectionKey)) {
         console.log(`⚠️ Connection already exists or pending with ${callerUsername}`);
         
@@ -408,7 +432,7 @@ const WebRTCAudioComponent = () => {
               targetUserId: callerUserId,
               signal,
               answererInfo: {
-                userId: currentUser,
+                userId: currentUserId,
                 username: currentUser
               },
               roomId
@@ -493,7 +517,7 @@ const WebRTCAudioComponent = () => {
       console.error('❌ Error handling incoming call:', error);
       setConnectionError(`Failed to handle incoming call: ${error.message}`);
     }
-  }, [getSocket, roomId, currentUser, createAudioElement]);
+  }, [getSocket, roomId, currentUser, createAudioElement, getCurrentUserId]);
 
   // STEP 5: Enhanced connection retry logic
   const handleConnectionRetry = useCallback((userId, username, localStream) => {
@@ -606,10 +630,11 @@ const WebRTCAudioComponent = () => {
         // Join voice room
         const socket = getSocket();
         if (socket && socket.connected) {
+          const currentUserId = getCurrentUserId();
           socket.emit('join-voice-room', {
             roomId,
             userInfo: {
-              userId: currentUser,
+              userId: currentUserId,
               username: currentUser
             }
           });
@@ -654,10 +679,11 @@ const WebRTCAudioComponent = () => {
         // Leave voice room
         const socket = getSocket();
         if (socket && socket.connected) {
+          const currentUserId = getCurrentUserId();
           socket.emit('leave-voice-room', {
             roomId,
             userInfo: {
-              userId: currentUser,
+              userId: currentUserId,
               username: currentUser
             }
           });
@@ -669,7 +695,7 @@ const WebRTCAudioComponent = () => {
         setConnectionError(`Error disconnecting: ${error.message}`);
       }
     }
-  }, [isAudioOn, getUserMedia, getSocket, roomId, currentUser, handlePeerCleanup]);
+  }, [isAudioOn, getUserMedia, getSocket, roomId, currentUser, handlePeerCleanup, getCurrentUserId]);
 
   // STEP 8: Mute toggle
   const toggleMute = useCallback(() => {
@@ -687,12 +713,12 @@ const WebRTCAudioComponent = () => {
     }
   }, [isMuted]);
 
-  // STEP 9: CRITICAL FIX - Enhanced socket event handlers with conflict resolution
+  // STEP 9: CRITICAL FIX - Enhanced socket event handlers with FIXED conflict resolution
   useEffect(() => {
     const socket = getSocket();
     if (!socket || !isAudioOn) return;
 
-    // Handle existing voice users with enhanced conflict resolution
+    // Handle existing voice users with FIXED conflict resolution
     const handleVoiceRoomUsers = ({ users }) => {
       try {
         console.log(`📋 Received ${users.length} existing voice users`);
@@ -702,24 +728,31 @@ const WebRTCAudioComponent = () => {
           return;
         }
 
-        // Sort users by ID to ensure consistent connection order
+        const currentUserId = getCurrentUserId();
+        const currentUserIdNum = parseInt(currentUserId);
+
+        // Filter out current user and sort by ID to ensure consistent connection order
         const sortedUsers = users
-          .filter(user => user.userId !== currentUser)
+          .filter(user => user.userId !== currentUserId)
           .sort((a, b) => parseInt(a.userId) - parseInt(b.userId));
 
+        console.log(`🔍 Current user ID: ${currentUserIdNum}, Existing users:`, sortedUsers.map(u => `${u.username}(${u.userId})`));
+
         sortedUsers.forEach((user, index) => {
-          // Only initiate if our user ID is higher (conflict resolution)
-          const shouldInitiate = parseInt(currentUser) > parseInt(user.userId);
+          const targetUserIdNum = parseInt(user.userId);
+          
+          // CRITICAL FIX: Use proper numeric comparison - higher ID initiates
+          const shouldInitiate = currentUserIdNum > targetUserIdNum;
           
           if (shouldInitiate) {
             setTimeout(() => {
               if (localStreamRef.current && mountedRef.current) {
-                console.log(`🔗 Connecting to existing user: ${user.username} (I initiate)`);
+                console.log(`🔗 Connecting to existing user: ${user.username} (${currentUserIdNum} > ${targetUserIdNum})`);
                 createPeer(user.userId, user.username, localStreamRef.current);
               }
             }, (index + 1) * 3000); // 3 second intervals for stability
           } else {
-            console.log(`⏳ Waiting for ${user.username} to initiate connection (they have higher ID)`);
+            console.log(`⏳ Waiting for ${user.username} to initiate connection (${targetUserIdNum} > ${currentUserIdNum})`);
           }
         });
       } catch (error) {
@@ -727,26 +760,30 @@ const WebRTCAudioComponent = () => {
       }
     };
 
-    // Handle user joining with enhanced conflict resolution
+    // Handle user joining with FIXED conflict resolution
     const handleUserJoinedVoice = ({ userInfo }) => {
       try {
         const { userId, username } = userInfo;
+        const currentUserId = getCurrentUserId();
         
-        if (userId !== currentUser && localStreamRef.current && mountedRef.current) {
+        if (userId !== currentUserId && localStreamRef.current && mountedRef.current) {
           console.log(`👤 ${username} joined voice chat`);
           
-          // Use conflict resolution - higher user ID initiates
-          const shouldInitiate = parseInt(currentUser) > parseInt(userId);
+          const currentUserIdNum = parseInt(currentUserId);
+          const joinedUserIdNum = parseInt(userId);
+          
+          // CRITICAL FIX: Use proper numeric comparison - higher ID initiates
+          const shouldInitiate = currentUserIdNum > joinedUserIdNum;
           
           if (shouldInitiate) {
             setTimeout(() => {
               if (localStreamRef.current && mountedRef.current) {
-                console.log(`🔗 Initiating connection to new user: ${username}`);
+                console.log(`🔗 Initiating connection to new user: ${username} (${currentUserIdNum} > ${joinedUserIdNum})`);
                 createPeer(userId, username, localStreamRef.current);
               }
             }, 4000); // 4 second delay for stability
           } else {
-            console.log(`⏳ Waiting for ${username} to initiate connection`);
+            console.log(`⏳ Waiting for ${username} to initiate connection (${joinedUserIdNum} > ${currentUserIdNum})`);
           }
         }
       } catch (error) {
@@ -758,8 +795,9 @@ const WebRTCAudioComponent = () => {
     const handleWebRTCSignal = ({ signal, callerInfo }) => {
       try {
         const { userId, username } = callerInfo;
+        const currentUserId = getCurrentUserId();
         
-        if (userId !== currentUser && localStreamRef.current && mountedRef.current) {
+        if (userId !== currentUserId && localStreamRef.current && mountedRef.current) {
           console.log(`📞 Incoming WebRTC signal from ${username}`);
           handleIncomingCall(signal, callerInfo, localStreamRef.current);
         }
@@ -789,8 +827,9 @@ const WebRTCAudioComponent = () => {
     const handleUserLeftVoice = ({ userInfo }) => {
       try {
         const { userId, username } = userInfo;
+        const currentUserId = getCurrentUserId();
         
-        if (userId !== currentUser) {
+        if (userId !== currentUserId) {
           console.log(`👋 ${username} left voice chat`);
           handlePeerCleanup(userId);
         }
@@ -813,7 +852,7 @@ const WebRTCAudioComponent = () => {
       socket.off('webrtc-answer', handleWebRTCAnswer);
       socket.off('user-left-voice', handleUserLeftVoice);
     };
-  }, [getSocket, isAudioOn, currentUser, createPeer, handleIncomingCall, handlePeerCleanup]);
+  }, [getSocket, isAudioOn, createPeer, handleIncomingCall, handlePeerCleanup, getCurrentUserId]);
 
   // STEP 10: Component cleanup on unmount
   useEffect(() => {
