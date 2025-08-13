@@ -866,14 +866,11 @@ const WebRTCAudioComponent = () => {
   }
 
   return (
-    <div className="flex flex-col space-y-3 p-4 bg-white rounded-lg border">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="flex flex-col h-full bg-white rounded-lg border">
+      {/* Header - Fixed */}
+      <div className="flex-shrink-0 flex items-center justify-between p-4 border-b border-gray-200">
         <h3 className="font-semibold text-gray-800 flex items-center">
           🎙️ Voice Chat
-          <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
-            FIXED
-          </span>
         </h3>
         <div className="flex items-center space-x-2">
           <div className={`w-2 h-2 rounded-full ${roomConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
@@ -883,216 +880,187 @@ const WebRTCAudioComponent = () => {
         </div>
       </div>
 
-      {/* Connection Error Display */}
-      {connectionError && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-md text-xs">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center">
-              <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-              </svg>
-              <span>{connectionError}</span>
+      {/* Scrollable Content Area */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-3" style={{
+        scrollbarWidth: 'thin',
+        scrollbarColor: '#cbd5e0 #f7fafc'
+      }}>
+        {/* Connection Error Display */}
+        {connectionError && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-md text-xs">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                <span>{connectionError}</span>
+              </div>
+              <button 
+                onClick={() => setConnectionError(null)}
+                className="text-red-500 hover:text-red-700 text-xs ml-2"
+              >
+                ✕
+              </button>
             </div>
-            <button 
-              onClick={() => setConnectionError(null)}
-              className="text-red-500 hover:text-red-700 text-xs ml-2"
-            >
-              ✕
-            </button>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Main Controls */}
-      <div className="flex items-center space-x-2">
-        {/* Main Audio Toggle Button */}
-        <button
-          onClick={toggleAudio}
-          disabled={isConnecting}
-          className={`flex items-center space-x-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
-            isConnecting
-              ? 'bg-gray-400 cursor-not-allowed text-white'
-              : !isAudioOn
-              ? 'bg-green-600 hover:bg-green-700 text-white'
-              : 'bg-blue-600 hover:bg-blue-700 text-white'
-          }`}
-        >
-          {isConnecting ? (
-            <>
-              <div className="animate-spin rounded-full h-4 w-4 border border-white border-t-transparent"></div>
-              <span>Connecting...</span>
-            </>
-          ) : !isAudioOn ? (
-            <>
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
-              </svg>
-              <span>Join Voice</span>
-            </>
-          ) : (
-            <>
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
-              </svg>
-              <span>Connected ({connectedUsers.length + 1})</span>
-            </>
-          )}
-        </button>
-
-        {/* Mute Button (only when audio is on) */}
-        {isAudioOn && (
+        {/* Main Controls */}
+        <div className="flex items-center space-x-2">
+          {/* Main Audio Toggle Button */}
           <button
-            onClick={toggleMute}
-            className={`flex items-center space-x-1 px-3 py-2 rounded-md text-xs transition-colors ${
-              isMuted
-                ? 'bg-red-500 hover:bg-red-600 text-white'
-                : 'bg-gray-500 hover:bg-gray-600 text-white'
+            onClick={toggleAudio}
+            disabled={isConnecting}
+            className={`flex items-center space-x-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+              isConnecting
+                ? 'bg-gray-400 cursor-not-allowed text-white'
+                : !isAudioOn
+                ? 'bg-green-600 hover:bg-green-700 text-white'
+                : 'bg-blue-600 hover:bg-blue-700 text-white'
             }`}
           >
-            {isMuted ? (
+            {isConnecting ? (
               <>
-                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM12.293 7.293a1 1 0 011.414 0L15 8.586l1.293-1.293a1 1 0 111.414 1.414L16.414 10l1.293 1.293a1 1 0 01-1.414 1.414L15 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 10l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" />
+                <div className="animate-spin rounded-full h-4 w-4 border border-white border-t-transparent"></div>
+                <span>Connecting...</span>
+              </>
+            ) : !isAudioOn ? (
+              <>
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
                 </svg>
-                <span>Muted</span>
+                <span>Join Voice</span>
               </>
             ) : (
               <>
-                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM14.657 2.929a1 1 0 011.414 0A9.972 9.972 0 0119 10a9.972 9.972 0 01-2.929 7.071 1 1 0 01-1.414-1.414A7.971 7.971 0 0017 10c0-2.21-.894-4.208-2.343-5.657a1 1 0 010-1.414zm-2.829 2.828a1 1 0 011.415 0A5.983 5.983 0 0115 10a5.984 5.984 0 01-1.757 4.243 1 1 0 01-1.415-1.415A3.984 3.984 0 0013 10a3.983 3.983 0 00-1.172-2.828 1 1 0 010-1.415z" clipRule="evenodd" />
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 715 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
                 </svg>
-                <span>Live</span>
+                <span>Connected ({connectedUsers.length + 1})</span>
               </>
             )}
           </button>
-        )}
 
-        {/* Connection Status */}
-        {isAudioOn && (
-          <div className="flex items-center space-x-1">
-            <div className={`w-2 h-2 rounded-full ${audioPermissionGranted ? 'bg-green-400' : 'bg-red-400'}`}></div>
-            <span className="text-xs text-gray-600">
-              {audioPermissionGranted ? 'Mic OK' : 'Mic Error'}
-            </span>
-          </div>
-        )}
-      </div>
+          {/* Mute Button (only when audio is on) */}
+          {isAudioOn && (
+            <button
+              onClick={toggleMute}
+              className={`flex items-center space-x-1 px-3 py-2 rounded-md text-xs transition-colors ${
+                isMuted
+                  ? 'bg-red-500 hover:bg-red-600 text-white'
+                  : 'bg-gray-500 hover:bg-gray-600 text-white'
+              }`}
+            >
+              {isMuted ? (
+                <>
+                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM12.293 7.293a1 1 0 011.414 0L15 8.586l1.293-1.293a1 1 0 111.414 1.414L16.414 10l1.293 1.293a1 1 0 01-1.414 1.414L15 11.414l-1.293 1.293a1 1 0 01-1.414-1.414L13.586 10l-1.293-1.293a1 1 0 010-1.414z" clipRule="evenodd" />
+                  </svg>
+                  <span>Muted</span>
+                </>
+              ) : (
+                <>
+                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M9.383 3.076A1 1 0 0110 4v12a1 1 0 01-1.707.707L4.586 13H2a1 1 0 01-1-1V8a1 1 0 011-1h2.586l3.707-3.707a1 1 0 011.09-.217zM14.657 2.929a1 1 0 011.414 0A9.972 9.972 0 0119 10a9.972 9.972 0 01-2.929 7.071 1 1 0 01-1.414-1.414A7.971 7.971 0 0017 10c0-2.21-.894-4.208-2.343-5.657a1 1 0 010-1.414zm-2.829 2.828a1 1 0 011.415 0A5.983 5.983 0 0115 10a5.984 5.984 0 01-1.757 4.243 1 1 0 01-1.415-1.415A3.984 3.984 0 0013 10a3.983 3.983 0 00-1.172-2.828 1 1 0 010-1.415z" clipRule="evenodd" />
+                  </svg>
+                  <span>Live</span>
+                </>
+              )}
+            </button>
+          )}
 
-      {/* Connected Users Display with Scrollbar */}
-      {isAudioOn && (
-        <div className="bg-gray-50 p-3 rounded-md">
-          <p className="text-xs font-medium text-gray-700 mb-2">Voice Chat Participants:</p>
-          <div 
-            className="space-y-1 max-h-24 overflow-y-auto audio-scrollable"
-            style={{
-              scrollbarWidth: 'thin',
-              scrollbarColor: '#cbd5e0 #f7fafc'
-            }}
-          >
-            {/* Current User */}
-            <div className="flex items-center text-xs">
-              <div className={`w-2 h-2 rounded-full mr-2 ${isMuted ? 'bg-red-400' : 'bg-green-400'} animate-pulse`}></div>
-              <span className="font-medium text-green-600">
-                You ({isMuted ? 'muted' : 'speaking'})
+          {/* Connection Status */}
+          {isAudioOn && (
+            <div className="flex items-center space-x-1">
+              <div className={`w-2 h-2 rounded-full ${audioPermissionGranted ? 'bg-green-400' : 'bg-red-400'}`}></div>
+              <span className="text-xs text-gray-600">
+                {audioPermissionGranted ? 'Mic OK' : 'Mic Error'}
               </span>
             </div>
-            
-            {/* Connected Users */}
-            {connectedUsers.map(user => (
-              <div key={user.userId} className="flex items-center text-xs">
-                <div className="w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse"></div>
-                <span className="text-gray-700">{user.username}</span>
-                <span className="ml-1 text-green-600">🎤</span>
+          )}
+        </div>
+
+        {/* Connected Users Display */}
+        {isAudioOn && (
+          <div className="bg-gray-50 p-3 rounded-md">
+            <p className="text-xs font-medium text-gray-700 mb-2">Voice Chat Participants:</p>
+            <div className="space-y-1">
+              {/* Current User */}
+              <div className="flex items-center text-xs">
+                <div className={`w-2 h-2 rounded-full mr-2 ${isMuted ? 'bg-red-400' : 'bg-green-400'} animate-pulse`}></div>
+                <span className="font-medium text-green-600">
+                  You ({isMuted ? 'muted' : 'speaking'})
+                </span>
               </div>
-            ))}
+              
+              {/* Connected Users */}
+              {connectedUsers.map(user => (
+                <div key={user.userId} className="flex items-center text-xs">
+                  <div className="w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse"></div>
+                  <span className="text-gray-700">{user.username}</span>
+                  <span className="ml-1 text-green-600">🎤</span>
+                </div>
+              ))}
+              
+              {connectedUsers.length === 0 && (
+                <div className="text-xs text-gray-500 italic">
+                  Waiting for others to join voice chat...
+                </div>
+              )}
+            </div>
             
-            {connectedUsers.length === 0 && (
-              <div className="text-xs text-gray-500 italic">
-                Waiting for others to join voice chat...
+            {/* Connection Stats */}
+            <div className="mt-2 pt-2 border-t border-gray-200">
+              <div className="flex justify-between text-xs text-gray-500">
+                <span>Total: {connectedUsers.length + 1} users</span>
+                <span>Active connections: {peersRef.current.size}</span>
               </div>
-            )}
-          </div>
-          
-          {/* Connection Stats */}
-          <div className="mt-2 pt-2 border-t border-gray-200">
-            <div className="flex justify-between text-xs text-gray-500">
-              <span>Total: {connectedUsers.length + 1} users</span>
-              <span>Active connections: {peersRef.current.size}</span>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Status Messages */}
-      {!isAudioOn && (
-        <div className="bg-green-50 p-3 rounded-md text-center border border-green-200">
-          <div className="text-sm text-green-800 mb-1">
-            🎙️ Enhanced Voice Chat Ready
-          </div>
-          <div className="text-xs text-green-600">
-            Click "Join Voice" to start talking with your team
-          </div>
-          <div className="text-xs text-blue-600 mt-1 font-medium">
-            ✅ ALL CONNECTION ISSUES FIXED!
-          </div>
-        </div>
-      )}
-
-      {isConnecting && (
-        <div className="bg-yellow-50 p-3 rounded-md text-center">
-          <div className="text-sm text-yellow-800 mb-1">
-            🔄 Setting up voice connection...
-          </div>
-          <div className="text-xs text-yellow-600">
-            Requesting microphone access and connecting to peers
-          </div>
-        </div>
-      )}
-
-      {/* Critical Fixes Applied */}
-      <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
-        <h4 className="text-xs font-semibold text-blue-800 mb-2">🔧 Critical Fixes Applied:</h4>
-        <div className="grid grid-cols-1 gap-1 text-xs text-blue-700">
-          <div>✅ Connection conflict resolution (user ID based)</div>
-          <div>✅ Duplicate connection prevention</div>
-          <div>✅ Enhanced connection state tracking</div>
-          <div>✅ Improved timeout handling (20s)</div>
-          <div>✅ Better retry logic with backoff</div>
-          <div>✅ Proper cleanup on disconnect</div>
-          <div>✅ Audio output to speakers working</div>
-          <div>✅ Scrollable participants list added</div>
-        </div>
-      </div>
-
-      {/* Technical Info (Development) */}
-      {process.env.NODE_ENV === 'development' && isAudioOn && (
-        <details className="bg-gray-100 p-2 rounded text-xs">
-          <summary className="cursor-pointer font-medium">🔧 Connection Debug Info</summary>
-          <div className="mt-2 space-y-1">
-            <div>Local Stream: {localStreamRef.current ? '✅ Active' : '❌ None'}</div>
-            <div>Peer Connections: {peersRef.current.size}</div>
-            <div>Audio Elements: {audioElementsRef.current.size}</div>
-            <div>Active Timeouts: {connectionTimeoutsRef.current.size}</div>
-            <div>Pending Connections: {pendingConnectionsRef.current.size}</div>
-            <div>Active Connections: {activeConnectionsRef.current.size}</div>
-            <div>Permission: {audioPermissionGranted ? '✅ Granted' : '❌ Denied'}</div>
-            <div>Component Mounted: {mountedRef.current ? '✅ Yes' : '❌ No'}</div>
-            <div className="mt-2 text-green-600 font-bold">🎯 ALL ISSUES RESOLVED!</div>
-          </div>
-        </details>
-      )}
-
-      {/* Help Text */}
-      <div className="text-center">
-        <div className="text-xs text-gray-500">
-          🎉 <strong>FIXED:</strong> Connection conflicts, timeouts, audio output issues, and scrollbar added
-        </div>
+        {/* Status Messages */}
         {!isAudioOn && (
-          <div className="text-xs text-gray-400 mt-1">
-            Enhanced WebRTC with conflict resolution - stable connections guaranteed!
+          <div className="bg-blue-50 p-3 rounded-md text-center border border-blue-200">
+            <div className="text-sm text-blue-800 mb-1">
+              🎙️ Voice Chat Available
+            </div>
+            <div className="text-xs text-blue-600">
+              Click "Join Voice" to start talking with your team
+            </div>
+          </div>
+        )}
+
+        {isConnecting && (
+          <div className="bg-yellow-50 p-3 rounded-md text-center">
+            <div className="text-sm text-yellow-800 mb-1">
+              🔄 Setting up voice connection...
+            </div>
+            <div className="text-xs text-yellow-600">
+              Requesting microphone access and connecting to peers
+            </div>
           </div>
         )}
       </div>
+
+      {/* Add CSS for scrollbar styling */}
+      <style jsx>{`
+        .flex-1::-webkit-scrollbar {
+          width: 6px;
+        }
+        .flex-1::-webkit-scrollbar-track {
+          background: #f7fafc;
+          border-radius: 3px;
+        }
+        .flex-1::-webkit-scrollbar-thumb {
+          background: #cbd5e0;
+          border-radius: 3px;
+          transition: background-color 0.2s ease;
+        }
+        .flex-1::-webkit-scrollbar-thumb:hover {
+          background: #a0aec0;
+        }
+      `}</style>
     </div>
   );
 };
