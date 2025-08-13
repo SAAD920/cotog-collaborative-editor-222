@@ -1,4 +1,4 @@
-// src/components/CollaborativeCodeEditor.js - SIMPLIFIED ROLE SYSTEM
+// src/components/CollaborativeCodeEditor.js - CLEAN VERSION
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
@@ -16,12 +16,12 @@ const CollaborativeCodeEditor = () => {
     language, 
     sendCodeChange, 
     sendLanguageChange,
-    isRoomOwner, // SIMPLIFIED: Only room owner can change language
+    isRoomOwner,
     lastEditUser,
     users,
     isConnected,
     currentUser,
-    userRole // SIMPLIFIED: Will be 'owner' or 'member'
+    userRole
   } = useRoom();
 
   const [localCode, setLocalCode] = useState('// Welcome to collaborative coding!\n// Start typing to share your code with the team...');
@@ -30,14 +30,12 @@ const CollaborativeCodeEditor = () => {
   const [isExecuting, setIsExecuting] = useState(false);
   const [languageChangeStatus, setLanguageChangeStatus] = useState('');
   
-  // Critical refs for preventing loops
   const lastSentCodeRef = useRef('');
   const lastReceivedCodeRef = useRef('');
   const isInitializedRef = useRef(false);
   const typingTimeoutRef = useRef(null);
   const sendTimeoutRef = useRef(null);
 
-  // Initialize once when room code is available
   useEffect(() => {
     if (roomCode !== undefined && !isInitializedRef.current) {
       console.log('🔄 Initializing editor with room code');
@@ -48,7 +46,6 @@ const CollaborativeCodeEditor = () => {
     }
   }, [roomCode]);
 
-  // FIXED: Only sync if it's actually from another user
   useEffect(() => {
     if (isInitializedRef.current && 
         roomCode !== undefined && 
@@ -65,17 +62,13 @@ const CollaborativeCodeEditor = () => {
     }
   }, [roomCode, localCode, lastEditUser, currentUser]);
 
-  // FIXED: Debounced send with proper loop prevention
   const debouncedSendCodeChange = useCallback((() => {
     return (newCode) => {
-      // Clear any existing timeout
       if (sendTimeoutRef.current) {
         clearTimeout(sendTimeoutRef.current);
       }
       
-      // Set new timeout
       sendTimeoutRef.current = setTimeout(() => {
-        // Only send if connected, code changed, and not already sent
         if (isConnected && 
             newCode !== lastSentCodeRef.current && 
             newCode !== lastReceivedCodeRef.current &&
@@ -90,12 +83,9 @@ const CollaborativeCodeEditor = () => {
     };
   })(), [sendCodeChange, language, isConnected, roomCode]);
 
-  // Handle editor changes - Clean and simple
   const handleEditorChange = useCallback((value) => {
-    // Update local state immediately for responsive UI
     setLocalCode(value);
     
-    // Handle typing indicator
     if (!isTyping) {
       setIsTyping(true);
     }
@@ -108,11 +98,9 @@ const CollaborativeCodeEditor = () => {
       setIsTyping(false);
     }, 1000);
 
-    // Debounced send
     debouncedSendCodeChange(value);
   }, [debouncedSendCodeChange, isTyping]);
 
-  // Handle language change - SIMPLIFIED: Only room owner can change language
   const handleLanguageChange = useCallback(async (event) => {
     const newLanguage = event.target.value;
     
@@ -123,7 +111,6 @@ const CollaborativeCodeEditor = () => {
       return;
     }
 
-    // SIMPLIFIED: Only room owner can change language
     const canChangeLanguage = isRoomOwner();
     if (!canChangeLanguage) {
       setLanguageChangeStatus('❌ Only room creator can change language');
@@ -153,7 +140,6 @@ const CollaborativeCodeEditor = () => {
     }
   }, [sendLanguageChange, localCode, isRoomOwner, isConnected, language]);
 
-  // Get language extension for CodeMirror
   const getLanguageExtension = (lang) => {
     const currentLang = lang || language || 'javascript';
     switch (currentLang) {
@@ -167,7 +153,6 @@ const CollaborativeCodeEditor = () => {
     }
   };
 
-  // Get default code template for language
   const getLanguageTemplate = (lang) => {
     switch (lang) {
       case 'javascript':
@@ -187,7 +172,6 @@ const CollaborativeCodeEditor = () => {
     }
   };
 
-  // Execute code with support for all languages
   const executeCode = async () => {
     setIsExecuting(true);
     const currentLang = language || 'javascript';
@@ -222,7 +206,6 @@ const CollaborativeCodeEditor = () => {
     }
   };
 
-  // JavaScript execution (browser eval) - ENHANCED
   const executeJavaScript = async () => {
     try {
       const logs = [];
@@ -253,7 +236,6 @@ const CollaborativeCodeEditor = () => {
 
       const result = eval(localCode);
       
-      // Restore console methods
       console.log = originalLog;
       console.error = originalError;
       console.warn = originalWarn;
@@ -272,7 +254,6 @@ const CollaborativeCodeEditor = () => {
     }
   };
 
-  // Python execution (using Pyodide - browser Python) - ENHANCED
   const executePython = async () => {
     try {
       setOutput('Loading Python environment...');
@@ -340,7 +321,6 @@ sys.stderr = old_stderr
     }
   };
 
-  // Enhanced Python execution (fallback)
   const executePythonEnhanced = async () => {
     try {
       let output = '';
@@ -351,13 +331,11 @@ sys.stderr = old_stderr
         const line = lines[i].trim();
         if (!line || line.startsWith('#')) continue;
         
-        // Handle print statements
         if (line.includes('print(')) {
           const printMatch = line.match(/print\((.+)\)/);
           if (printMatch) {
             let content = printMatch[1];
             
-            // Handle f-strings
             if (content.includes('f"') || content.includes("f'")) {
               const fStringMatch = content.match(/f["']([^"']*?)["']/);
               if (fStringMatch) {
@@ -368,15 +346,12 @@ sys.stderr = old_stderr
                 output += fString + '\n';
               }
             }
-            // Handle string literals
             else if (content.match(/^["'].*["']$/)) {
               output += content.slice(1, -1) + '\n';
             }
-            // Handle variables
             else if (variables[content]) {
               output += variables[content] + '\n';
             }
-            // Handle expressions
             else {
               try {
                 const expr = content.replace(/\w+/g, (match) => variables[match] || match);
@@ -389,7 +364,6 @@ sys.stderr = old_stderr
           }
         }
         
-        // Handle variable assignments
         else if (line.includes('=') && !line.includes('==') && !line.includes('!=') && !line.includes('<=') && !line.includes('>=')) {
           const assignMatch = line.match(/(\w+)\s*=\s*(.+)/);
           if (assignMatch) {
@@ -411,7 +385,6 @@ sys.stderr = old_stderr
           }
         }
         
-        // Handle for loops
         else if (line.startsWith('for ')) {
           const forMatch = line.match(/for\s+(\w+)\s+in\s+range\((\d+)(?:,\s*(\d+))?\)/);
           if (forMatch) {
@@ -419,7 +392,6 @@ sys.stderr = old_stderr
             const start = forMatch[3] ? Number(forMatch[2]) : 0;
             const end = forMatch[3] ? Number(forMatch[3]) : Number(forMatch[2]);
             
-            // Find the loop body
             let j = i + 1;
             const loopBody = [];
             while (j < lines.length && (lines[j].startsWith('    ') || lines[j].trim() === '')) {
@@ -429,7 +401,6 @@ sys.stderr = old_stderr
               j++;
             }
             
-            // Execute loop
             for (let k = start; k < end; k++) {
               variables[varName] = k;
               for (const bodyLine of loopBody) {
@@ -471,12 +442,10 @@ sys.stderr = old_stderr
     }
   };
 
-  // HTML execution (iframe rendering)
   const executeHTML = () => {
     setOutput(localCode);
   };
 
-  // CSS execution (live preview)
   const executeCSS = () => {
     const htmlTemplate = `
 <!DOCTYPE html>
@@ -505,7 +474,6 @@ sys.stderr = old_stderr
     setOutput(htmlTemplate);
   };
 
-  // C++ execution (mock)
   const executeCpp = async () => {
     setOutput('Compiling C++ code...');
     await new Promise(resolve => setTimeout(resolve, 1000));
@@ -536,7 +504,6 @@ sys.stderr = old_stderr
     return 'C++ program compiled and executed successfully.';
   };
 
-  // Java execution (mock)
   const executeJava = async () => {
     setOutput('Compiling Java code...');
     await new Promise(resolve => setTimeout(resolve, 1200));
@@ -567,7 +534,6 @@ sys.stderr = old_stderr
     return 'Java program compiled and executed successfully.';
   };
 
-  // Save code to localStorage
   const saveCode = () => {
     try {
       const currentLang = language || 'javascript';
@@ -580,7 +546,6 @@ sys.stderr = old_stderr
     }
   };
 
-  // Load code from localStorage
   const loadCode = () => {
     try {
       const currentLang = language || 'javascript';
@@ -602,7 +567,6 @@ sys.stderr = old_stderr
     }
   };
 
-  // Clear editor
   const clearEditor = () => {
     if (confirm('Clear the editor?')) {
       const template = getLanguageTemplate(language);
@@ -630,7 +594,7 @@ sys.stderr = old_stderr
                 id="language"
                 value={currentLanguage}
                 onChange={handleLanguageChange}
-                disabled={!isConnected || !isRoomOwner()} // SIMPLIFIED: Only room owner can change
+                disabled={!isConnected || !isRoomOwner()}
                 className={`px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
                   !isConnected || !isRoomOwner()
                     ? 'bg-gray-100 cursor-not-allowed text-gray-500' 
@@ -730,20 +694,12 @@ sys.stderr = old_stderr
           </div>
         )}
 
-        {/* Simplified Role System Info */}
-        <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded-md">
-          <div className="text-xs text-green-800">
-            <div className="flex items-center justify-between">
-              <span>
-                <strong>🔧 Simplified Role System:</strong> 
-                {userRole === 'owner' ? ' You created this room and can change the language' : ' Room creator controls language selection'}
-              </span>
-              <span className="text-green-600 font-medium">
-                ✅ No Admin/Moderator complexity!
-              </span>
-            </div>
+        {/* Clean role indicator */}
+        {userRole === 'owner' && (
+          <div className="mt-2 text-xs text-blue-600">
+            You can change the programming language
           </div>
-        </div>
+        )}
       </div>
 
       {/* Main Editor Area */}
@@ -810,10 +766,10 @@ sys.stderr = old_stderr
                   {output || `Click 'Run' to execute your ${currentLanguage.toUpperCase()} code...`}
                 </pre>
                 
-                {/* Language-specific execution info */}
+                {/* Clean execution info */}
                 <div className="mt-3 p-3 bg-blue-50 rounded border border-blue-200">
                   <h4 className="text-sm font-semibold text-blue-800 mb-2">
-                    {currentLanguage.toUpperCase()} Execution Info:
+                    {currentLanguage.toUpperCase()} Execution:
                   </h4>
                   <div className="text-xs text-blue-700">
                     {currentLanguage === 'javascript' && (
@@ -861,13 +817,7 @@ sys.stderr = old_stderr
                   </div>
                 </div>
 
-                {/* Simplified Role System Notice */}
-                <div className="mt-2 p-2 bg-green-50 rounded border border-green-200">
-                  <p className="text-xs text-green-800">
-                    <strong>🔧 Simplified Roles:</strong> 
-                    {userRole === 'owner' ? ' As room creator, you can change the language above.' : ' Only the room creator can change the programming language.'}
-                  </p>
-                </div>
+                {/* Remove verbose role system notice */}
 
                 {/* Online Compiler Integration Notice */}
                 {(currentLanguage === 'cpp' || currentLanguage === 'java') && (

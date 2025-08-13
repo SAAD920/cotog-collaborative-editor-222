@@ -1,4 +1,4 @@
-// src/pages/room/[roomId].js - SIMPLIFIED ROLE SYSTEM
+// src/pages/room/[roomId].js - CLEAN VERSION
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import Navbar from '@/components/Navbar';
@@ -23,12 +23,12 @@ const RoomContent = () => {
     joinRoom, 
     leaveRoom,
     currentUser,
-    userRole // SIMPLIFIED: Will be 'owner' or 'member'
+    userRole
   } = useRoom();
 
   const [hasAttemptedJoin, setHasAttemptedJoin] = useState(false);
 
-  // Simplified room credentials validation
+  // Room credentials validation
   const roomCredentials = useMemo(() => {
     if (!roomId || typeof roomId !== 'string' || roomId.includes('[') || roomId.includes(']')) {
       return null;
@@ -45,7 +45,7 @@ const RoomContent = () => {
     };
   }, [roomId, router.query.roomPassword, router.query.maxUsers]);
 
-  // Simplified join function
+  // Join function
   const handleJoinRoom = useCallback(async (credentials) => {
     if (!credentials || !user || hasAttemptedJoin) {
       return false;
@@ -59,7 +59,7 @@ const RoomContent = () => {
     return await joinRoom(credentials.roomId, credentials.roomPassword);
   }, [joinRoom, user, hasAttemptedJoin, isConnected, roomInfo, error]);
 
-  // Simplified useEffect for joining
+  // Join effect
   useEffect(() => {
     if (roomCredentials && user && !hasAttemptedJoin) {
       handleJoinRoom(roomCredentials);
@@ -73,7 +73,7 @@ const RoomContent = () => {
     };
   }, []);
 
-  // Simplified loading state
+  // Loading state
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-100">
@@ -112,7 +112,7 @@ const RoomContent = () => {
     );
   }
 
-  // Simplified error state
+  // Error state
   if (error) {
     return (
       <div className="min-h-screen bg-gray-100">
@@ -146,7 +146,7 @@ const RoomContent = () => {
     );
   }
 
-  // Get role display text - SIMPLIFIED
+  // Get role display text
   const getRoleDisplayText = (role) => {
     switch (role) {
       case 'owner':
@@ -158,7 +158,7 @@ const RoomContent = () => {
     }
   };
 
-  // Get role icon - SIMPLIFIED
+  // Get role icon
   const getRoleIcon = (role) => {
     switch (role) {
       case 'owner':
@@ -181,7 +181,7 @@ const RoomContent = () => {
               <div>
                 <h1 className="text-2xl font-bold text-gray-800 flex items-center">
                   {roomInfo?.roomName || `Room ${roomId}`}
-                  {/* SIMPLIFIED: Only show crown for room creator */}
+                  {/* Only show crown for room creator */}
                   {userRole === 'owner' && <span className="ml-2 text-lg">👑</span>}
                 </h1>
                 <div className="flex items-center space-x-4 text-sm text-gray-600">
@@ -203,10 +203,10 @@ const RoomContent = () => {
                       <span>👥 {users.length}/{roomInfo.maxUsers} users</span>
                       <span>👤 Created by {roomInfo.createdBy}</span>
                       {roomInfo.isPrivate && <span>🔒 Private</span>}
-                      <span>🎙️ Voice Chat Ready</span>
-                      {/* SIMPLIFIED: Show role system status */}
-                      <span className="bg-green-100 text-green-800 px-2 py-1 rounded-full text-xs">
-                        🔧 Simplified Roles
+                      <span>🎙️ Voice Chat</span>
+                      {/* Clean role indicator */}
+                      <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-xs">
+                        {userRole === 'owner' ? 'Creator' : 'Member'}
                       </span>
                     </>
                   )}
@@ -215,7 +215,7 @@ const RoomContent = () => {
             </div>
             
             <div className="flex items-center space-x-3">
-              {/* User Role Display - SIMPLIFIED */}
+              {/* User Role Display */}
               <div className="text-sm bg-blue-50 border border-blue-200 px-3 py-1 rounded-full">
                 <span className="text-blue-800 font-medium">
                   {getRoleIcon(userRole)} {getRoleDisplayText(userRole)}
@@ -235,6 +235,7 @@ const RoomContent = () => {
             </div>
           </div>
           
+          {/* Clean room description */}
           {roomInfo?.description && (
             <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
               <p className="text-blue-800 text-sm">
@@ -242,23 +243,6 @@ const RoomContent = () => {
               </p>
             </div>
           )}
-
-          {/* Simplified Role System Info */}
-          <div className="mt-3 p-3 bg-green-50 rounded-lg border border-green-200">
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-green-800">
-                <span className="font-semibold">🔧 Simplified Role System:</span>
-                {userRole === 'owner' ? (
-                  ' You created this room and can control the programming language.'
-                ) : (
-                  ' All users can code and chat. Only the room creator can change the language.'
-                )}
-              </div>
-              <span className="text-xs bg-green-200 text-green-800 px-2 py-1 rounded-full">
-                ✅ No Admin/Moderator Complexity
-              </span>
-            </div>
-          </div>
         </div>
       </div>
 
@@ -297,7 +281,7 @@ const RoomContent = () => {
         </div>
       </div>
 
-      {/* Simplified Room Status Bar */}
+      {/* Clean Room Status Bar */}
       <div className="fixed bottom-0 left-0 right-0 bg-gray-800 text-white py-2 px-4 z-50">
         <div className="container mx-auto">
           <div className="flex items-center justify-between">
@@ -325,9 +309,9 @@ const RoomContent = () => {
                 </span>
               )}
               
-              {/* Simplified Role System Indicator */}
-              <span className="text-xs bg-green-600 px-2 py-1 rounded-full hidden md:inline">
-                🔧 Simplified
+              {/* Clean role indicator */}
+              <span className="text-xs bg-blue-600 px-2 py-1 rounded-full hidden md:inline">
+                {userRole === 'owner' ? 'Creator' : 'Member'}
               </span>
               
               <div className="flex items-center space-x-2">
@@ -352,15 +336,15 @@ const RoomContent = () => {
                 <>
                   <span>📝 {roomInfo.roomName}</span>
                   {roomInfo.isPrivate && <span>🔒 Private</span>}
-                  <span>🎙️ Voice Ready</span>
+                  <span>🎙️ Voice Chat</span>
                   <span>
-                    🔧 Role: {userRole === 'owner' ? 'Creator (can change language)' : 'Member (equal access)'}
+                    Role: {userRole === 'owner' ? 'Room Creator' : 'Member'}
                   </span>
                 </>
               )}
             </div>
             <div className="flex items-center space-x-2 text-xs">
-              <span>Server: cotog-backend.onrender.com v5.0.0</span>
+              <span>Server: cotog-backend.onrender.com</span>
               <div className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`}></div>
             </div>
           </div>
@@ -375,7 +359,7 @@ const RoomPage = () => {
   const { isAuthenticated } = useAuth();
   const router = useRouter();
 
-  // Simplified redirect handling
+  // Redirect handling
   useEffect(() => {
     if (!isAuthenticated) {
       const currentPath = router.asPath;

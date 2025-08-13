@@ -1,4 +1,4 @@
-// src/components/Chat.js - SIMPLIFIED ROLE SYSTEM
+// src/components/Chat.js - CLEAN VERSION
 import React, { useState, useRef, useEffect } from 'react';
 import { useRoom } from '@/contexts/RoomContext';
 
@@ -111,7 +111,7 @@ const Chat = () => {
     return 'text-purple-600';
   };
 
-  // SIMPLIFIED: Get role display for sender
+  // Get role display for sender
   const getRoleDisplay = (senderRole) => {
     switch (senderRole) {
       case 'owner':
@@ -128,9 +128,6 @@ const Chat = () => {
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-800 flex items-center">
             💬 Team Chat
-            <span className="ml-2 text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
-              Simplified
-            </span>
           </h3>
           <div className="flex items-center space-x-2">
             <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
@@ -151,7 +148,7 @@ const Chat = () => {
         )}
       </div>
 
-      {/* Online Users - Collapsible, Fixed height with SIMPLIFIED roles */}
+      {/* Online Users - Collapsible, Fixed height */}
       <div className="flex-shrink-0 bg-gray-50 border-b border-gray-200 px-3 py-2 max-h-16 overflow-hidden">
         <div className="flex flex-wrap gap-1">
           {users.slice(0, 4).map((user, index) => (
@@ -162,7 +159,7 @@ const Chat = () => {
               <div className="w-1.5 h-1.5 bg-green-400 rounded-full"></div>
               <span className={`font-medium ${user.username === currentUser ? 'text-green-600' : 'text-gray-700'}`}>
                 {user.username.length > 8 ? user.username.substring(0, 8) + '...' : user.username}
-                {/* SIMPLIFIED: Only show crown for room creator */}
+                {/* Only show crown for room creator */}
                 {user.roomRole === 'owner' && ' 👑'}
               </span>
             </div>
@@ -184,16 +181,12 @@ const Chat = () => {
           scrollBehavior: 'smooth'
         }}
       >
+        {/* Clean welcome message */}
         {messages.length === 0 ? (
           <div className="text-center text-gray-500 mt-8 px-4">
             <div className="text-2xl mb-2">💬</div>
             <p className="text-sm font-medium">Welcome to the chat!</p>
             <p className="text-xs">Start the conversation with your team.</p>
-            <div className="mt-3 p-2 bg-green-50 border border-green-200 rounded-md">
-              <p className="text-xs text-green-800">
-                <strong>🔧 Simplified Roles:</strong> All users are equal. Only room creator can change language.
-              </p>
-            </div>
           </div>
         ) : (
           messages.map((msg, index) => (
@@ -205,7 +198,7 @@ const Chat = () => {
                 <div className="flex items-center justify-between mb-1">
                   <span className={`font-semibold text-xs ${getSenderColor(msg.sender)}`}>
                     {msg.sender}
-                    {/* SIMPLIFIED: Only show role indicator for room creator */}
+                    {/* Only show role indicator for room creator */}
                     {getRoleDisplay(msg.senderRole)}
                   </span>
                   <span className="text-xs text-gray-500">
@@ -287,10 +280,10 @@ const Chat = () => {
           </div>
         )}
 
-        {/* Simplified Role System Info */}
+        {/* Clean status bar */}
         <div className="mt-2 text-center">
           <span className="text-xs text-gray-500">
-            🔧 <strong>Simplified:</strong> Equal users, room creator controls language
+            Room chat • {users.length} users online
           </span>
         </div>
       </div>
